@@ -131,23 +131,34 @@ export default function AnalyticsPage() {
     [router],
   );
 
+  // Request sequence numbers: when the user switches range quickly, a slow older response must not
+  // overwrite the newer one (the 180-day query can easily finish after the 7-day one).
+  const dashSeq = useRef(0);
+  const insightsSeq = useRef(0);
+
   const loadDashboard = useCallback(async () => {
+    const id = ++dashSeq.current;
     setLoading(true);
     try {
-      setData(await api<DashboardData>(`/metrics/dashboard?days=${days}&bucket=${bucket}`));
+      const d = await api<DashboardData>(`/metrics/dashboard?days=${days}&bucket=${bucket}`);
+      if (id === dashSeq.current) setData(d);
     } catch (err) {
-      fail(err);
+      if (id === dashSeq.current) fail(err);
     } finally {
-      setLoading(false);
+      if (id === dashSeq.current) setLoading(false);
     }
   }, [days, bucket, fail]);
 
   const loadInsights = useCallback(async () => {
+    const id = ++insightsSeq.current;
     setInsightsState("loading");
     try {
-      setInsights(await api<InsightsData>(`/metrics/insights?days=${days}`));
+      const r = await api<InsightsData>(`/metrics/insights?days=${days}`);
+      if (id !== insightsSeq.current) return;
+      setInsights(r);
       setInsightsState("idle");
     } catch {
+      if (id !== insightsSeq.current) return;
       setInsights(null);
       setInsightsState("error");
     }
@@ -236,7 +247,10 @@ export default function AnalyticsPage() {
               key={r}
               role="radio"
               aria-checked={days === r}
-              onClick={() => setDays(r)}
+              onClick={() => {
+                setDays(r);
+                setShowAll(false);
+              }}
               className={`rounded-md px-3 py-1 text-sm ${days === r ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"}`}
             >
               {r} days
@@ -315,9 +329,15 @@ export default function AnalyticsPage() {
       {data && !empty && (
         // Refetch keeps the frame: the previous render stays, dimmed, instead of a skeleton flash.
         <div className={`transition-opacity ${loading ? "opacity-60" : ""}`} aria-busy={loading}>
-          <section className={`${card} mt-6 p-5`} aria-live="polite">
-            <h2 className="text-sm font-medium" style={{ color: "var(--viz-ink-2)" }}>
+          <section
+            className={`${card} mt-6 p-5 transition-opacity ${insightsState === "loading" && insights ? "opacity-60" : ""}`}
+            aria-live="polite"
+            aria-busy={insightsState === "loading"}
+          >
+            <h2 className="flex items-center gap-2 text-sm font-medium" style={{ color: "var(--viz-ink-2)" }}>
               AI insights
+              {/* The previous range's insights stay visible (dimmed) while the new range is analysed. */}
+              {insightsState === "loading" && insights && <span className="text-xs font-normal">Updating…</span>}
             </h2>
             {insightsState === "loading" && !insights && <p className="mt-2 text-sm">Analyzing your metrics…</p>}
             {insightsState === "error" && (

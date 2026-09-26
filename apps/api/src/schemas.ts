@@ -32,7 +32,11 @@ export const AskBody = z.object({
 const IsoDay = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD")
-  .refine((s) => new Date(`${s}T00:00:00Z`).toISOString().startsWith(s), "not a real date");
+  .refine((s) => {
+    // Month 13 or day 32 give an Invalid Date, whose toISOString() would throw (a 500, not a 400).
+    const d = new Date(`${s}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s) && s >= "1970-01-01";
+  }, "not a real date");
 
 export const DashboardQuery = z.object({
   days: z.coerce.number().int().min(7).max(365).default(30),

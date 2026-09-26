@@ -12,6 +12,8 @@ from .config import settings
 from .embeddings import tokenize
 from .retrieval import Hit
 
+Timeout = float | httpx.Timeout
+
 NO_ANSWER = "I couldn't find anything about that in your documents."
 
 SYSTEM_PROMPT = (
@@ -23,7 +25,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def _openai(system: str, user: str) -> str:
+def _openai(system: str, user: str, timeout: Timeout = 60) -> str:
     res = httpx.post(
         "https://api.openai.com/v1/chat/completions",
         headers={"authorization": f"Bearer {settings.openai_api_key}"},
@@ -32,13 +34,13 @@ def _openai(system: str, user: str) -> str:
             "temperature": 0,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         },
-        timeout=60,
+        timeout=timeout,
     )
     res.raise_for_status()
     return res.json()["choices"][0]["message"]["content"]
 
 
-def _anthropic(system: str, user: str) -> str:
+def _anthropic(system: str, user: str, timeout: Timeout = 60) -> str:
     res = httpx.post(
         "https://api.anthropic.com/v1/messages",
         headers={"x-api-key": settings.anthropic_api_key, "anthropic-version": "2023-06-01"},
@@ -48,13 +50,13 @@ def _anthropic(system: str, user: str) -> str:
             "system": system,
             "messages": [{"role": "user", "content": user}],
         },
-        timeout=60,
+        timeout=timeout,
     )
     res.raise_for_status()
     return "".join(b["text"] for b in res.json()["content"] if b["type"] == "text")
 
 
-def _ollama(system: str, user: str) -> str:
+def _ollama(system: str, user: str, timeout: Timeout = 180) -> str:
     res = httpx.post(
         f"{settings.ollama_url}/api/chat",
         json={
@@ -63,7 +65,7 @@ def _ollama(system: str, user: str) -> str:
             "options": {"temperature": 0},
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         },
-        timeout=180,
+        timeout=timeout,
     )
     res.raise_for_status()
     return res.json()["message"]["content"]
@@ -76,11 +78,12 @@ def has_llm() -> bool:
     return settings.llm_provider in PROVIDERS
 
 
-def chat(system: str, user: str) -> str:
-    """Single-turn completion with the configured provider."""
+def chat(system: str, user: str, timeout: Timeout | None = None) -> str:
+    """Single-turn completion with the configured provider (its default timeout unless given)."""
     if settings.llm_provider not in PROVIDERS:
         raise ValueError(f"LLM_PROVIDER {settings.llm_provider!r} has no chat model")
-    return PROVIDERS[settings.llm_provider](system, user)
+    fn = PROVIDERS[settings.llm_provider]
+    return fn(system, user) if timeout is None else fn(system, user, timeout)
 
 
 # ---------------------------------------------------------------- RAG answers

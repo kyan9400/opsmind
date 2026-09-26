@@ -107,6 +107,19 @@ run("metrics (postgres + redis)", () => {
     expect((res.body as Buffer).subarray(0, 2).toString()).toBe("PK");
   });
 
+  it("caps distinct metrics per workspace", async () => {
+    const a = await register("umbrella");
+    const rows = Array.from({ length: 101 }, (_, i) => `2026-09-01,Metric ${i},1`);
+    const res = await request(app)
+      .post("/api/v1/metrics/import")
+      .set("authorization", a)
+      .attach("file", Buffer.from(["date,metric,value", ...rows].join("\n")), "wide.csv")
+      .expect(422);
+    expect(res.body.error).toMatch(/up to 100/);
+    const list = await request(app).get("/api/v1/metrics").set("authorization", a).expect(200);
+    expect(list.body.data).toEqual([]); // the whole import rolled back
+  });
+
   it("loads demo data for admins only", async () => {
     const a = await register("hooli");
     const created = await request(app).post("/api/v1/metrics/demo").set("authorization", a).expect(201);

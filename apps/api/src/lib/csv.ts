@@ -36,13 +36,22 @@ function normaliseDay(raw: string): string | null {
   return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(iso) ? iso : null;
 }
 
-function normaliseValue(raw: string): number | null {
-  // Tolerate thousands separators and decimal commas: "12 400,50" / "12,400.50".
+/**
+ * Tolerate grouping and decimal separators from any locale: "12 400,50", "1.234,56", "12,400.50".
+ * When both "," and "." appear, the rightmost one is the decimal separator. A lone comma is a
+ * decimal separator only in ";"/tab files; in comma files it had to be quoted, so it is grouping
+ * ("12,400" is twelve thousand four hundred, not 12.4).
+ */
+export function normaliseValue(raw: string, delimiter = ","): number | null {
   let s = raw.trim().replace(/[\s ']/g, "");
-  if (/^-?\d+,\d+$/.test(s)) s = s.replace(",", ".");
-  else s = s.replace(/,/g, "");
-  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
-  return Number(s);
+  const comma = s.lastIndexOf(",");
+  const dot = s.lastIndexOf(".");
+  if (comma >= 0 && dot >= 0) s = comma > dot ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  else if (comma >= 0) s = delimiter !== "," && /^-?\d+,\d+$/.test(s) ? s.replace(",", ".") : s.replace(/,/g, "");
+  // Bounded digits keep sums over a year of values finite (no Infinity reaching Postgres, charts or reports).
+  if (!/^-?\d{1,15}(\.\d{1,10})?$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -62,16 +71,29 @@ export function sniffDelimiter(text: string): string {
  */
 export function parseMetricsCsv(input: string | Buffer): ParseResult {
   const text = typeof input === "string" ? input : input.toString("utf8");
-  const records: string[][] = parse(text, {
-    bom: true,
-    skip_empty_lines: true,
-    trim: true,
-    relax_column_count: true,
-    delimiter: sniffDelimiter(text),
-  });
+  const delimiter = sniffDelimiter(text);
+  type Row = { record: string[]; info: { lines: number } };
+  let records: Row[];
+  try {
+    // csv-parse's typings don't model `info: true`, which wraps each record with its position.
+    records = parse(text, {
+      bom: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true, // tolerate Excel's trailing empty columns; real extra fields are reported below
+      relax_quotes: true, // a stray quote in an unquoted field (Screen 27" sales) is data, not syntax
+      delimiter,
+      info: true, // physical line numbers, correct even after blank lines or multi-line quoted fields
+    }) as unknown as Row[];
+  } catch (err) {
+    // Unclosed quotes etc.: report as a user error on the line csv-parse stopped at, not a 500.
+    const e = err as Error & { lines?: number };
+    return { rows: [], errors: [{ line: e.lines ?? 1, message: `could not read the file: ${e.message}` }] };
+  }
   if (records.length === 0) return { rows: [], errors: [{ line: 1, message: "file is empty" }] };
 
-  const header = records[0].map((h) => ALIASES[h.toLowerCase()]);
+  const headerCells = records[0].record;
+  const header = headerCells.map((h) => ALIASES[h.toLowerCase()]);
   const col = (k: keyof MetricRow) => header.indexOf(k);
   const [iDay, iMetric, iValue] = [col("day"), col("metric"), col("value")];
   if (iDay < 0 || iMetric < 0 || iValue < 0) {
@@ -83,14 +105,19 @@ export function parseMetricsCsv(input: string | Buffer): ParseResult {
 
   const rows: MetricRow[] = [];
   const errors: ParseResult["errors"] = [];
-  records.slice(1).forEach((r, i) => {
-    const line = i + 2;
+  records.slice(1).forEach(({ record: r, info }) => {
+    const line = info.lines;
+    // e.g. an unquoted "12,5" in a comma file splits into two fields: reject rather than import 12.
+    if (r.length > headerCells.length && r.slice(headerCells.length).some((c) => c !== "")) {
+      errors.push({ line, message: "more columns than the header — quote values that contain the delimiter" });
+      return;
+    }
     const day = normaliseDay(r[iDay] ?? "");
     const metric = (r[iMetric] ?? "").trim();
-    const value = normaliseValue(r[iValue] ?? "");
+    const value = normaliseValue(r[iValue] ?? "", delimiter);
     if (!day) errors.push({ line, message: `invalid date "${r[iDay] ?? ""}" (use YYYY-MM-DD)` });
     else if (!metric || metric.length > 80) errors.push({ line, message: "metric name must be 1-80 characters" });
-    else if (value === null) errors.push({ line, message: `invalid number "${r[iValue] ?? ""}"` });
+    else if (value === null) errors.push({ line, message: `invalid number "${r[iValue] ?? ""}" (max 15 digits)` });
     else rows.push({ day, metric, value });
   });
   return { rows, errors };

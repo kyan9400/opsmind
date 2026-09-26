@@ -3,7 +3,7 @@ import request from "supertest";
 import ExcelJS from "exceljs";
 import { createApp } from "../src/app.js";
 import { signToken } from "../src/lib/auth.js";
-import { metricKey, parseMetricsCsv, sniffDelimiter } from "../src/lib/csv.js";
+import { metricKey, normaliseValue, parseMetricsCsv, sniffDelimiter } from "../src/lib/csv.js";
 import { addDays, eachDay, periodsFor } from "../src/lib/dates.js";
 import { generateDemoData } from "../src/lib/demoData.js";
 import { buildPdf, buildXlsx, isGoodChange, type ReportData } from "../src/lib/exporters.js";
@@ -36,6 +36,34 @@ describe("csv import parsing", () => {
     expect(rows).toEqual([{ day: "2026-09-02", metric: "Orders", value: 5 }]);
     expect(errors.map((e) => e.line)).toEqual([2, 3, 4]);
     expect(errors[0].message).toMatch(/invalid date/);
+  });
+
+  it("reads grouping and decimal separators by position and delimiter (no silent 1000x errors)", () => {
+    expect(normaliseValue("1,234", ",")).toBe(1234); // quoted US grouping in a comma file
+    expect(normaliseValue("12,400", ",")).toBe(12400);
+    expect(normaliseValue("1,234,567.89", ",")).toBe(1234567.89);
+    expect(normaliseValue("1.234,56", ";")).toBe(1234.56); // German
+    expect(normaliseValue("12 400,50", ";")).toBe(12400.5); // Russian
+    expect(normaliseValue("12,5", ";")).toBe(12.5);
+    expect(normaliseValue("-0.5", ",")).toBe(-0.5);
+    expect(normaliseValue("1".repeat(16), ",")).toBeNull(); // would overflow sums
+    expect(normaliseValue("1e308", ",")).toBeNull();
+    expect(parseMetricsCsv('date,metric,value\n2026-09-01,Revenue,"12,400"\n').rows[0].value).toBe(12400);
+  });
+
+  it("reports unquoted delimiters in values instead of importing a truncated number", () => {
+    const { rows, errors } = parseMetricsCsv("date,metric,value\n2026-09-01,Revenue,12,5\n2026-09-02,Revenue,7,\n");
+    expect(errors).toEqual([{ line: 2, message: expect.stringMatching(/more columns than the header/) }]);
+    expect(rows).toEqual([{ day: "2026-09-02", metric: "Revenue", value: 7 }]); // trailing empty column is fine
+  });
+
+  it("never throws on malformed quotes, and reports physical line numbers", () => {
+    expect(parseMetricsCsv('date,metric,value\n2026-09-01,Screen 27" sales,5\n').rows[0].metric).toBe('Screen 27" sales');
+    const unclosed = parseMetricsCsv('date,metric,value\n2026-09-01,"Revenue,5\n');
+    expect(unclosed.rows).toEqual([]);
+    expect(unclosed.errors[0].message).toMatch(/could not read the file/);
+    const gaps = parseMetricsCsv("date,metric,value\n\n\n2026-09-01,Revenue,x\n");
+    expect(gaps.errors.map((e) => e.line)).toEqual([4]);
   });
 
   it("rejects files without the required columns", () => {
@@ -157,6 +185,10 @@ describe("metrics http (no database)", () => {
     await request(app).get("/api/v1/metrics/dashboard?days=1000").set("authorization", token("viewer")).expect(400);
     await request(app).get("/api/v1/metrics/dashboard?bucket=year").set("authorization", token("viewer")).expect(400);
     await request(app).get("/api/v1/metrics/dashboard?to=2026-02-31").set("authorization", token("viewer")).expect(400);
+    // Out-of-range month/day used to throw inside the validator (500).
+    await request(app).get("/api/v1/metrics/dashboard?to=2026-13-01").set("authorization", token("viewer")).expect(400);
+    await request(app).get("/api/v1/metrics/insights?to=2026-02-32").set("authorization", token("viewer")).expect(400);
+    await request(app).get("/api/v1/metrics/dashboard?to=0001-01-01").set("authorization", token("viewer")).expect(400);
     await request(app).get("/api/v1/metrics/export?format=docx").set("authorization", token("viewer")).expect(400);
   });
 

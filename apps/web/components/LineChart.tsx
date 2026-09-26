@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { formatDay, formatDeltaPct, formatValue, niceTicks } from "@/lib/format";
+import { formatDay, formatDeltaPct, formatValue, niceTicks, tickFormatter } from "@/lib/format";
 
 export interface ChartPoint {
   x: string; // ISO day (bucket start)
@@ -64,8 +64,8 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
     const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join("");
     const area = `${line}L${x(points.length - 1).toFixed(1)},${M.top + h}L${x(0).toFixed(1)},${M.top + h}Z`;
     const labelEvery = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(w / 80))));
-    return { ticks, x, y, line, area, w, h, labelEvery };
-  }, [points, width, height]);
+    return { ticks, fmtTick: tickFormatter(ticks, unit), x, y, line, area, w, h, labelEvery };
+  }, [points, width, height, unit]);
 
   function onPointer(e: React.PointerEvent<SVGRectElement>) {
     if (!geo) return;
@@ -75,14 +75,17 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
   }
 
   function onKey(e: React.KeyboardEvent) {
-    if (e.key === "ArrowRight") setActive((a) => Math.min(points.length - 1, (a ?? -1) + 1));
-    else if (e.key === "ArrowLeft") setActive((a) => Math.max(0, (a ?? points.length) - 1));
+    const last = points.length - 1;
+    if (e.key === "ArrowRight") setActive((a) => Math.min(last, a === null || a > last ? 0 : a + 1));
+    else if (e.key === "ArrowLeft") setActive((a) => Math.max(0, a === null || a > last ? last : a - 1));
     else if (e.key === "Escape") setActive(null);
     else return;
     e.preventDefault();
   }
 
-  const p = active !== null ? points[active] : null;
+  // `points` can shrink while a point is hovered (e.g. switching 30 -> 7 days); never index past the end.
+  const idx = active !== null && active < points.length ? active : null;
+  const p = idx !== null ? points[idx] : null;
   const marker = p ? markerByX.get(p.x) : undefined;
 
   return (
@@ -128,13 +131,21 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
                 fill="var(--viz-muted)"
                 style={{ fontVariantNumeric: "tabular-nums" }}
               >
-                {formatValue(t, unit, { compact: true })}
+                {geo.fmtTick(t)}
               </text>
             </g>
           ))}
           {points.map((pt, i) =>
             i % geo.labelEvery === 0 ? (
-              <text key={pt.x} x={geo.x(i)} y={height - 8} textAnchor="middle" fontSize={11} fill="var(--viz-muted)">
+              <text
+                key={pt.x}
+                x={geo.x(i)}
+                y={height - 8}
+                // The last label sits at the plot's right edge: anchor it inward so it isn't clipped.
+                textAnchor={points.length > 1 && i === points.length - 1 ? "end" : "middle"}
+                fontSize={11}
+                fill="var(--viz-muted)"
+              >
                 {formatDay(pt.x, bucket)}
               </text>
             ) : null,
@@ -142,6 +153,10 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
 
           <path d={geo.area} fill={`url(#${gradientId})`} />
           <path d={geo.line} fill="none" stroke="var(--viz-series-1)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          {/* A single point has no line to draw: show it as a dot. */}
+          {points.length === 1 && !points[0].partial && (
+            <circle cx={geo.x(0)} cy={geo.y(points[0].value)} r={4} fill="var(--viz-series-1)" stroke="var(--viz-surface)" strokeWidth={2} />
+          )}
 
           {/* Partial buckets: hollow markers, the value covers only part of that week/month. */}
           {points.map((pt, i) =>
@@ -151,10 +166,10 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
           )}
 
           {/* Crosshair */}
-          {active !== null && (
+          {idx !== null && (
             <line
-              x1={geo.x(active)}
-              x2={geo.x(active)}
+              x1={geo.x(idx)}
+              x2={geo.x(idx)}
               y1={M.top}
               y2={M.top + geo.h}
               stroke="var(--viz-axis)"
@@ -180,10 +195,10 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
           })}
 
           {/* Hover dot, unless an anomaly marker already sits there (it must stay visible). */}
-          {active !== null && !marker && (
+          {p && idx !== null && !marker && (
             <circle
-              cx={geo.x(active)}
-              cy={geo.y(points[active].value)}
+              cx={geo.x(idx)}
+              cy={geo.y(p.value)}
               r={4}
               fill="var(--viz-series-1)"
               stroke="var(--viz-surface)"
@@ -205,14 +220,14 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
         </svg>
       )}
 
-      {geo && p && active !== null && (
+      {geo && p && idx !== null && (
         <div
           role="status"
           className="pointer-events-none absolute z-10 min-w-36 rounded-lg border px-3 py-2 text-xs shadow-lg"
           style={{
             top: 0,
             // Sit beside the crosshair, flipping sides past 60% so it never covers the hovered point.
-            ...(geo.x(active) > width * 0.6 ? { right: width - geo.x(active) + 12 } : { left: geo.x(active) + 12 }),
+            ...(geo.x(idx) > width * 0.6 ? { right: width - geo.x(idx) + 12 } : { left: geo.x(idx) + 12 }),
             background: "var(--viz-surface)",
             borderColor: "var(--viz-border)",
           }}

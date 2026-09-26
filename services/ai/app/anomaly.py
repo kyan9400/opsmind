@@ -1,10 +1,11 @@
 """KPI anomaly detection with a seasonal robust z-score.
 
 Each day's expected value is the median of the *same weekday* over the previous 8 weeks
-(so normal weekend dips are not flagged); its noise level is the MAD of every day in that
-window against its own weekday median. Without enough weekly history it falls back to the
-previous 28 days. Median/MAD instead of mean/stddev keeps the baseline stable when the
-history itself contains incidents.
+(so normal weekend dips are not flagged); its noise level is the spread of every day in that
+window against its own weekday median. A day is only scored once its weekday has at least
+4 prior points: a non-seasonal fallback would compare weekends with weekdays and raise false
+alarms. Median/MAD instead of mean/stddev keeps the baseline stable when the history itself
+contains incidents.
 """
 
 from __future__ import annotations
@@ -17,12 +18,12 @@ from typing import Literal
 
 Z_THRESHOLD = 3.5  # Iglewicz & Hoaglin's recommended cut-off for modified z-scores
 HIGH_SEVERITY_Z = 6.0
+Z_CAP = 99.0  # a first-ever event on an all-zero baseline has no finite z; report it as "very high"
 MAD_TO_SIGMA = 1.4826  # scales MAD to a standard deviation for normal data
+MEAN_AD_TO_SIGMA = 1.2533  # scales mean absolute deviation to a standard deviation
 MIN_SCALE_FRACTION = 0.01  # never treat moves smaller than ~1% of the baseline as significant
 WEEKS_LOOKBACK = 8
 MIN_WEEKLY_POINTS = 4
-ROLLING_DAYS = 28
-MIN_ROLLING_POINTS = 14
 
 
 @dataclass(frozen=True)
@@ -37,44 +38,46 @@ class Anomaly:
     bad: bool
 
 
-def _mad(xs: list[float]) -> float:
+def _sigma(xs: list[float]) -> float:
+    """Robust standard deviation: MAD-based, or mean-absolute-deviation-based when MAD is 0.
+
+    MAD collapses to 0 when over half the residuals are identical (sparse counts such as refunds
+    that are 0 on most days); every non-zero day would then look infinitely unusual.
+    """
     m = median(xs)
-    return median(abs(x - m) for x in xs)
+    mad = median(abs(x - m) for x in xs)
+    if mad > 0:
+        return MAD_TO_SIGMA * mad
+    return MEAN_AD_TO_SIGMA * sum(abs(x - m) for x in xs) / len(xs)
 
 
 def _model(values: dict[date, float], day: date) -> tuple[float, float] | None:
-    """Return (expected, scale) for `day` from history strictly before it, or None if too little."""
+    """Return (expected, noise sigma) for `day` from history strictly before it, or None if too little."""
     window = [d for k in range(1, WEEKS_LOOKBACK * 7 + 1) if (d := day - timedelta(days=k)) in values]
     same_weekday = [values[d] for d in window if d.weekday() == day.weekday()]
+    if len(same_weekday) < MIN_WEEKLY_POINTS:
+        return None
 
-    if len(same_weekday) >= MIN_WEEKLY_POINTS:
-        expected = median(same_weekday)
-        # The noise level comes from *every* day in the window (~56 samples), not just the 8
-        # same-weekday points: a MAD of 8 values is itself too noisy and causes false alarms.
-        # Residuals are leave-one-out (each day vs the median of the *other* days of its weekday),
-        # which is exactly how a new day is scored; in-sample residuals underestimate the noise.
-        by_weekday: dict[int, list[date]] = defaultdict(list)
-        for d in window:
-            by_weekday[d.weekday()].append(d)
-        loo: list[tuple[float, float]] = []  # (value, expected from the other same-weekday days)
-        for days in by_weekday.values():
-            if len(days) < 3:
-                continue
-            for d in days:
-                loo.append((values[d], median(values[o] for o in days if o != d)))
-        if not loo:
-            return None
-        if expected > 0 and all(m > 0 for _, m in loo):
-            # Relative residuals, so weekend and weekday noise are comparable despite different levels.
-            scale = MAD_TO_SIGMA * _mad([v / m - 1 for v, m in loo]) * expected
-        else:
-            scale = MAD_TO_SIGMA * _mad([v - m for v, m in loo])
-        return expected, scale
-
-    rolling = [values[d] for d in window[:ROLLING_DAYS]]
-    if len(rolling) >= MIN_ROLLING_POINTS:
-        return median(rolling), MAD_TO_SIGMA * _mad(rolling)
-    return None
+    expected = median(same_weekday)
+    # The noise level comes from *every* day in the window (~56 samples), not just the 8
+    # same-weekday points: a MAD of 8 values is itself too noisy and causes false alarms.
+    # Residuals are leave-one-out (each day vs the median of the *other* days of its weekday),
+    # which is exactly how a new day is scored; in-sample residuals underestimate the noise.
+    by_weekday: dict[int, list[date]] = defaultdict(list)
+    for d in window:
+        by_weekday[d.weekday()].append(d)
+    loo: list[tuple[float, float]] = []  # (value, expected from the other same-weekday days)
+    for days in by_weekday.values():
+        if len(days) < 3:
+            continue
+        for d in days:
+            loo.append((values[d], median(values[o] for o in days if o != d)))
+    if not loo:
+        return None
+    if expected > 0 and all(m > 0 for _, m in loo):
+        # Relative residuals, so weekend and weekday noise are comparable despite different levels.
+        return expected, _sigma([v / m - 1 for v, m in loo]) * expected
+    return expected, _sigma([v - m for v, m in loo])
 
 
 def detect(
@@ -94,7 +97,7 @@ def detect(
         expected, spread = model
         scale = max(spread, MIN_SCALE_FRACTION * abs(expected), 1e-9)
         value = values[day]
-        z = (value - expected) / scale
+        z = max(-Z_CAP, min(Z_CAP, (value - expected) / scale))
         if abs(z) < threshold:
             continue
         kind: Literal["spike", "drop"] = "spike" if z > 0 else "drop"

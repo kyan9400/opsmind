@@ -5,6 +5,7 @@ import { audit } from "../lib/audit.js";
 import { HttpError } from "../lib/errors.js";
 import { MAX_CSV_BYTES, parseMetricsCsv } from "../lib/csv.js";
 import { todayUtc } from "../lib/dates.js";
+import { decodeFilename } from "../lib/files.js";
 import { generateDemoData } from "../lib/demoData.js";
 import { buildPdf, buildXlsx } from "../lib/exporters.js";
 import { getInsights, type Insights } from "../lib/insights.js";
@@ -19,10 +20,11 @@ metricsRouter.use(requireAuth);
 const csvUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_CSV_BYTES, files: 1 },
-  fileFilter: (_req, file, cb) =>
-    /\.(csv|tsv|txt)$/i.test(file.originalname)
-      ? cb(null, true)
-      : cb(new HttpError(415, "upload a .csv file with date, metric and value columns")),
+  fileFilter: (_req, file, cb) => {
+    file.originalname = decodeFilename(file.originalname);
+    if (/\.(csv|tsv|txt)$/i.test(file.originalname)) cb(null, true);
+    else cb(new HttpError(415, "upload a .csv file with date, metric and value columns"));
+  },
 });
 
 metricsRouter.get("/", requireRole("viewer"), async (req, res) => {

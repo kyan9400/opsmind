@@ -2,6 +2,10 @@ import type pg from "pg";
 import { query, withTx } from "./db.js";
 import { metricKey, type MetricRow } from "./csv.js";
 import { periodsFor, type Period } from "./dates.js";
+import { HttpError } from "./errors.js";
+
+/** Matches the AI service's limit on series per insights request. */
+export const MAX_METRICS_PER_TENANT = 100;
 
 export type Aggregation = "sum" | "avg";
 export type Direction = "up" | "down";
@@ -139,6 +143,23 @@ interface MetricUpsert {
  * the given name/unit/aggregation/direction (demo data); CSV imports leave admin settings alone.
  */
 async function upsertMetrics(tx: pg.PoolClient, tenantId: string, defs: MetricUpsert[], overwriteSettings: boolean) {
+  // Cap distinct metrics per tenant. Every view is O(metrics x days), and the AI service accepts
+  // at most 100 series, so an unbounded import could stall exports for all tenants.
+  // Locking the tenant row serialises concurrent imports so two can't both squeeze under the cap.
+  await tx.query("SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE", [tenantId]);
+  const {
+    rows: [{ n }],
+  } = await tx.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM metrics WHERE tenant_id = $1 AND NOT (key = ANY($2::text[]))",
+    [tenantId, defs.map((d) => d.key)],
+  );
+  if (n + defs.length > MAX_METRICS_PER_TENANT) {
+    throw new HttpError(
+      422,
+      `too many metrics: a workspace can track up to ${MAX_METRICS_PER_TENANT} (this import would make ${n + defs.length})`,
+    );
+  }
+
   const res = await tx.query<{ id: string; key: string }>(
     `INSERT INTO metrics (tenant_id, key, name, unit, aggregation, direction)
      SELECT $1, t.key, t.name, t.unit, t.aggregation, t.direction

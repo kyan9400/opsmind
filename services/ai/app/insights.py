@@ -7,6 +7,9 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
+
+import httpx
 
 from .config import settings
 from .llm import chat, has_llm
@@ -24,13 +27,20 @@ SYSTEM_PROMPT = (
 
 PREFIX_UNITS = {"$", "€", "£"}
 
+# The API gives /v1/insights 60s in total; a slow or hung LLM must fall back to the template well before.
+SUMMARY_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
+
 
 def fmt_value(v: float | None, unit: str = "") -> str:
+    """Same output as the TypeScript formatValue, including half-away-from-zero rounding."""
     if v is None:
         return "—"
     a = abs(v)
     decimals = 0 if a >= 100 else 1 if a >= 10 else 2
-    n = f"{a:,.{decimals}f}".rstrip("0").rstrip(".") if decimals else f"{a:,.0f}"
+    q = Decimal(repr(a)).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
+    n = f"{q:,f}"
+    if decimals:
+        n = n.rstrip("0").rstrip(".")
     sign = "-" if v < 0 else ""
     if unit in PREFIX_UNITS:
         return f"{sign}{unit}{n}"
@@ -79,9 +89,8 @@ def template_summary(kpis: list[KpiDelta], anomalies: list[NamedAnomaly]) -> str
             f"{n} unusual movement{'s' if n != 1 else ''} in this period"
             + (f", {bad} needing attention." if bad else ", all in a positive direction.")
         )
-        for a in sorted(anomalies, key=lambda a: -abs(a.z))[:3]:
-            if a.deviation_pct is None:
-                continue
+        describable = [a for a in anomalies if a.deviation_pct is not None]
+        for a in sorted(describable, key=lambda a: -abs(a.z))[:3]:
             where = "above" if a.kind == "spike" else "below"
             parts.append(
                 f"{a.metric} on {fmt_day(a.day)} was {abs(a.deviation_pct):.0f}% {where} expected "
@@ -101,7 +110,7 @@ def template_summary(kpis: list[KpiDelta], anomalies: list[NamedAnomaly]) -> str
     else:
         parts.append("No unusual movements in this period.")
 
-    changes = [k for k in kpis if k.delta_pct is not None]
+    changes = [k for k in kpis if k.delta_pct is not None and round(abs(k.delta_pct), 1) > 0]
     if changes:
         k = max(changes, key=lambda k: abs(k.delta_pct or 0))
         pct = k.delta_pct or 0
@@ -124,7 +133,8 @@ def summarize(kpis: list[KpiDelta], anomalies: list[NamedAnomaly]) -> tuple[str,
         ],
     }
     try:
-        return chat(SYSTEM_PROMPT, json.dumps(payload, ensure_ascii=False)).strip(), settings.llm_provider
+        text = chat(SYSTEM_PROMPT, json.dumps(payload, ensure_ascii=False), timeout=SUMMARY_TIMEOUT)
+        return text.strip(), settings.llm_provider
     except Exception:
         log.exception("llm summary failed; using template")
         return template_summary(kpis, anomalies), "template"

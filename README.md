@@ -77,11 +77,17 @@ EMBED_PROVIDER=ollama LLM_PROVIDER=ollama docker compose up -d ai worker
 
 Businesses bring their numbers as a **CSV in long format** (`date,metric,value`), the shape every spreadsheet can export. Or an admin clicks **Load demo data** for 180 days of realistic metrics: growth trend, weekend dips, noise, and six injected incidents.
 
-- **Import** (`POST /api/v1/metrics/import`, member+): comma, semicolon and tab files; `YYYY-MM-DD` or `DD.MM.YYYY` dates; `12 400,50` or `12,400.50` numbers. Bad rows are reported with their line number instead of failing the file. Points are bulk-upserted with `unnest()` in 10k-row batches, one transaction per file; re-importing a day overwrites it.
+- **Import** (`POST /api/v1/metrics/import`, member+): comma, semicolon and tab files; `YYYY-MM-DD` or `DD.MM.YYYY` dates; `12 400,50`, `1.234,56` or `12,400.50` numbers.
+  - The decimal separator is decided by position and by the file's delimiter, so a quoted `"12,400"` is never read as 12.4.
+  - Bad rows, including values that split across columns and malformed quotes, are reported with their physical line number instead of failing the file.
+  - Points are bulk-upserted with `unnest()` in 10k-row batches, one transaction per file; re-importing a day overwrites it.
+  - A workspace can track up to 100 metrics, enforced under a row lock, since every view is O(metrics × days).
 - **Dashboard** (`GET /api/v1/metrics/dashboard?days=30&bucket=week`): current vs previous period in a single SQL pass (`FILTER` clauses), and a series bucketed by day, week or month with `date_trunc`. Each metric knows whether it is a **total or an average** (revenue vs resolution time) and **which direction is good** (revenue up vs tickets up), which drives the delta colours and whether an anomaly is a problem. Buckets cut off by the period edge are flagged `partial` and drawn hollow.
 - **AI insights** (`GET /api/v1/metrics/insights`): the Python service scores every day with a **seasonal robust z-score**:
   - *expected* = the median of the same weekday over the previous 8 weeks, so normal weekend dips are not "anomalies"
   - *noise* = the MAD of **leave-one-out** residuals across the whole 8-week window (~56 samples); in-sample residuals underestimate noise and cause false alarms
+  - a day is scored only once its weekday has 4 weeks of history; a non-seasonal fallback would compare Sundays with Mondays
+  - sparse counts (refunds that are 0 on most days) fall back from MAD to mean absolute deviation, so they don't flood the page with alerts
   - flagged when |z| ≥ 3.5 (Iglewicz & Hoaglin), "high" severity at 6
 
   Results are summarised in plain language, by the configured LLM or a deterministic template. They are cached in Redis under a per-tenant **data-version key** that every import or edit bumps, so invalidation is O(1) with no key scans.
@@ -94,7 +100,8 @@ Businesses bring their numbers as a **CSV in long format** (`date,metric,value`)
 | False alarms on incident-free data | 2 in 15,000 day-checks (0.013%) |
 | 20% drop detected | 97% |
 | ≥ 25% drop detected | 100% |
-| Demo data, 90 days × 6 metrics | all 6 injected incidents found, 0 false alarms |
+| Demo data, 30 / 90 / 180-day views | exactly the injected incidents (5 / 6 / 6), 0 false alarms |
+| Sparse 0/1 counts (P(1) = 25%) | ≤ 2.5 alerts per 30 days (was ~10 before the MAD fallback) |
 
 The charts follow a documented data-viz spec: one metric per chart (never two y-axes), 2px lines with a 10% area wash, hairline grid, a crosshair tooltip that snaps to dates and works with arrow keys, status-coloured anomaly markers (always paired with an icon and label, never colour alone), a table view for every chart, and a validated palette with separate light and dark steps.
 
