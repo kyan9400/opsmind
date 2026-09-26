@@ -1,3 +1,7 @@
+x-backend-env: &backend-env
+  DATABASE_URL: postgres://${POSTGRES_USER:-opsmind}:${POSTGRES_PASSWORD:-opsmind_dev_password}@postgres:5432/${POSTGRES_DB:-opsmind}
+  AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-dev-internal-token-change-me}
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -15,20 +19,49 @@ services:
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
 
   api:
     build: ./apps/api
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-opsmind}:${POSTGRES_PASSWORD:-opsmind_dev_password}@postgres:5432/${POSTGRES_DB:-opsmind}
+      <<: *backend-env
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
       CORS_ORIGIN: http://localhost:3000
+      REDIS_URL: redis://redis:6379
+      AI_SERVICE_URL: http://ai:8000
     ports: ["4000:4000"]
     depends_on:
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build: ./apps/api
+    command: ["node", "dist/worker.js"]
+    environment:
+      <<: *backend-env
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
+      REDIS_URL: redis://redis:6379
+      AI_SERVICE_URL: http://ai:8000
+    healthcheck: { disable: true }
+    depends_on:
+      api: { condition: service_healthy } # api runs migrations on start
+      ai: { condition: service_healthy }
 
   ai:
     build: ./services/ai
+    environment:
+      <<: *backend-env
+      EMBED_PROVIDER: ${EMBED_PROVIDER:-hash}
+      LLM_PROVIDER: ${LLM_PROVIDER:-extractive}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
     ports: ["8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
 
   web:
     build:
@@ -38,5 +71,14 @@ services:
     ports: ["3000:3000"]
     depends_on: [api]
 
+  # Optional local LLM: `docker compose --profile local-llm up`, then
+  # `docker compose exec ollama ollama pull nomic-embed-text && docker compose exec ollama ollama pull llama3.1`
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [local-llm]
+    ports: ["11434:11434"]
+    volumes: [ollama:/root/.ollama]
+
 volumes:
   pgdata:
+  ollama:

@@ -22,8 +22,12 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U opsmind" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
     env:
       DATABASE_URL: postgres://opsmind:opsmind@localhost:5432/opsmind_test
+      REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-secret-at-least-16-chars
     steps:
       - uses: actions/checkout@v5
@@ -48,19 +52,42 @@ jobs:
 
   ai:
     runs-on: ubuntu-latest
-    defaults:
-      run: { working-directory: services/ai }
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: opsmind
+          POSTGRES_PASSWORD: opsmind
+          POSTGRES_DB: opsmind_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U opsmind" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://opsmind:opsmind@localhost:5432/opsmind_test
     steps:
       - uses: actions/checkout@v5
+      # The schema is owned by the API's migrations; apply them first.
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci && npm run migrate -w apps/api
+        env: { JWT_SECRET: ci-secret-at-least-16-chars }
       - uses: actions/setup-python@v6
         with: { python-version: "3.12", cache: pip }
       - run: pip install -r requirements-dev.txt
+        working-directory: services/ai
       - run: ruff check .
+        working-directory: services/ai
       - run: pytest -q
+        working-directory: services/ai
+        env: { INTEGRATION: "1" }
 
-  docker:
+  e2e:
     needs: [api, web, ai]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: docker compose build
+      - run: docker compose up -d --build --wait postgres redis api ai worker
+      - run: bash scripts/smoke.sh
+      - if: failure()
+        run: docker compose logs --no-color api worker ai
+      - run: docker compose build web
