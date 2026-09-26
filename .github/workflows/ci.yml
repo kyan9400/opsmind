@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: opsmind
+          POSTGRES_PASSWORD: opsmind
+          POSTGRES_DB: opsmind_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U opsmind" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://opsmind:opsmind@localhost:5432/opsmind_test
+      JWT_SECRET: ci-secret-at-least-16-chars
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint -w apps/api
+      - run: npm run migrate -w apps/api
+      - run: npm test -w apps/api
+        env: { INTEGRATION: "1" }
+      - run: npm run build -w apps/api
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint -w apps/web
+      - run: npm run build -w apps/web
+
+  ai:
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: services/ai }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: pytest -q
+
+  docker:
+    needs: [api, web, ai]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build

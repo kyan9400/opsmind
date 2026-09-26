@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.next/
+.env
+__pycache__/
+.pytest_cache/
+.venv/
+*.log
+next-env.d.ts
