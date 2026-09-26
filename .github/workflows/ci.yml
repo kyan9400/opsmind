@@ -26,8 +26,8 @@ jobs:
       DATABASE_URL: postgres://opsmind:opsmind@localhost:5432/opsmind_test
       JWT_SECRET: ci-secret-at-least-16-chars
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run lint -w apps/api
@@ -39,8 +39,8 @@ jobs:
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run lint -w apps/web
@@ -51,8 +51,8 @@ jobs:
     defaults:
       run: { working-directory: services/ai }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with: { python-version: "3.12", cache: pip }
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
@@ -62,5 +62,5 @@ jobs:
     needs: [api, web, ai]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: docker compose build
