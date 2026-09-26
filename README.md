@@ -5,7 +5,7 @@
 **An AI-powered operations and knowledge platform for small businesses.**
 Teams upload their documents and connect operational data, then get cited AI answers, live KPI dashboards with anomaly hints, and multi-tenant, role-based administration — all shipped with CI/CD, containers and observability.
 
-> Status: **Week 2 of 5 — RAG** (document ingestion, hybrid retrieval, cited answers) on top of the Week 1 foundation. See the [roadmap](#roadmap).
+> Status: **Week 3 of 5 — Analytics** (KPI dashboard, anomaly detection, Excel/PDF reports) on top of the RAG pipeline and the Week 1 foundation. See the [roadmap](#roadmap).
 
 ## Architecture
 
@@ -30,7 +30,8 @@ browser → │  Next.js web │ ─────► │  Node.js API (TS) │ �
 | API | Node.js, Express 5, Zod, JWT, bcrypt, pino |
 | Data | PostgreSQL 16 + pgvector, Redis |
 | AI | Python 3.12, FastAPI, pgvector, pypdf; OpenAI / Claude / Ollama |
-| Queue | Redis + BullMQ (retries with exponential backoff) |
+| Queue & cache | Redis + BullMQ (retries with exponential backoff); versioned cache keys |
+| Reports | ExcelJS (typed cells, number formats), PDFKit (vector sparklines, DejaVu for Cyrillic/Arabic) |
 | Delivery | Docker, docker compose, GitHub Actions |
 
 ## Design decisions
@@ -72,6 +73,31 @@ EMBED_PROVIDER=ollama LLM_PROVIDER=ollama docker compose up -d ai worker
 
 > Changing `EMBED_PROVIDER` changes the vector space, so reindex existing documents afterwards (`POST /api/v1/documents/:id/reindex`).
 
+## KPI analytics
+
+Businesses bring their numbers as a **CSV in long format** (`date,metric,value`), the shape every spreadsheet can export. Or an admin clicks **Load demo data** for 180 days of realistic metrics: growth trend, weekend dips, noise, and six injected incidents.
+
+- **Import** (`POST /api/v1/metrics/import`, member+): comma, semicolon and tab files; `YYYY-MM-DD` or `DD.MM.YYYY` dates; `12 400,50` or `12,400.50` numbers. Bad rows are reported with their line number instead of failing the file. Points are bulk-upserted with `unnest()` in 10k-row batches, one transaction per file; re-importing a day overwrites it.
+- **Dashboard** (`GET /api/v1/metrics/dashboard?days=30&bucket=week`): current vs previous period in a single SQL pass (`FILTER` clauses), and a series bucketed by day, week or month with `date_trunc`. Each metric knows whether it is a **total or an average** (revenue vs resolution time) and **which direction is good** (revenue up vs tickets up), which drives the delta colours and whether an anomaly is a problem. Buckets cut off by the period edge are flagged `partial` and drawn hollow.
+- **AI insights** (`GET /api/v1/metrics/insights`): the Python service scores every day with a **seasonal robust z-score**:
+  - *expected* = the median of the same weekday over the previous 8 weeks, so normal weekend dips are not "anomalies"
+  - *noise* = the MAD of **leave-one-out** residuals across the whole 8-week window (~56 samples); in-sample residuals underestimate noise and cause false alarms
+  - flagged when |z| ≥ 3.5 (Iglewicz & Hoaglin), "high" severity at 6
+
+  Results are summarised in plain language, by the configured LLM or a deterministic template. They are cached in Redis under a per-tenant **data-version key** that every import or edit bumps, so invalidation is O(1) with no key scans.
+- **Reports** (`GET /api/v1/metrics/export?format=xlsx|pdf`): an Excel workbook (summary with conditional delta colours, wide daily data with real date cells, anomalies sheet) or a PDF with KPI cards and sparklines. If the AI service is down, the report still generates without the insights section.
+
+**Measured detector behaviour** (`services/ai/tests`, ±5% noise with weekly seasonality):
+
+| | Result |
+|---|---|
+| False alarms on incident-free data | 2 in 15,000 day-checks (0.013%) |
+| 20% drop detected | 97% |
+| ≥ 25% drop detected | 100% |
+| Demo data, 90 days × 6 metrics | all 6 injected incidents found, 0 false alarms |
+
+The charts follow a documented data-viz spec: one metric per chart (never two y-axes), 2px lines with a 10% area wash, hairline grid, a crosshair tooltip that snaps to dates and works with arrow keys, status-coloured anomaly markers (always paired with an icon and label, never colour alone), a table view for every chart, and a validated palette with separate light and dark steps.
+
 ## Run it locally
 
 ```bash
@@ -111,6 +137,14 @@ npm run dev:web     # :3000
 | POST | `/api/v1/documents/:id/reindex` | admin+ | Re-run ingestion |
 | DELETE | `/api/v1/documents/:id` | admin+ | Delete document and its chunks |
 | POST | `/api/v1/ask` | viewer+ | `{question, topK}` → cited answer |
+| GET | `/api/v1/metrics` | viewer+ | Metric definitions |
+| GET | `/api/v1/metrics/dashboard?days&bucket&to` | viewer+ | Period vs previous period + bucketed series |
+| GET | `/api/v1/metrics/insights?days&to` | viewer+ | Anomalies + narrative summary (cached) |
+| GET | `/api/v1/metrics/export?format=xlsx\|pdf&days&bucket` | viewer+ | Download report (audited) |
+| POST | `/api/v1/metrics/import` | member+ | CSV upload (multipart `file`) with per-line errors |
+| POST | `/api/v1/metrics/demo` | admin+ | Load 180 days of demo KPIs |
+| PATCH | `/api/v1/metrics/:id` | admin+ | Name, unit, total/average, good direction |
+| DELETE | `/api/v1/metrics/:id` | admin+ | Delete a metric and its data |
 
 ## Testing
 
@@ -121,13 +155,15 @@ cd services/ai && pytest -q                # AI service (INTEGRATION=1 for pgvec
 bash scripts/smoke.sh                      # end-to-end against a running stack
 ```
 
-CI runs every suite against real Postgres + Redis service containers. It then starts the whole stack with `docker compose` and runs the **end-to-end smoke test**: register → upload → the worker indexes it → ask → assert a cited answer.
+CI runs every suite against real Postgres + Redis service containers. It then starts the whole stack with `docker compose` and runs the **end-to-end smoke test**:
+- register → upload → the worker indexes it → ask → assert a cited answer
+- load demo KPIs → dashboard → assert every injected incident is detected → download both reports and check their file signatures
 
 ## Roadmap
 
 - [x] **Week 1 — Foundation:** monorepo, auth, multi-tenancy, RBAC, audit log, Docker, CI
 - [x] **Week 2 — RAG:** document upload, ingestion queue, embeddings in pgvector, hybrid search (vector + full-text, RRF), cited answers, local LLM option
-- [ ] **Week 3 — Analytics:** KPI dashboard, AI anomaly hints, Excel/PDF export
+- [x] **Week 3 — Analytics:** KPI dashboard, CSV import, seasonal anomaly detection with AI summaries, Excel/PDF reports
 - [ ] **Week 4 — Ops:** Kubernetes manifests / Helm, Terraform, OpenTelemetry + Prometheus + Grafana, k6 load tests
 - [ ] **Week 5 — Polish:** EN/RU/AR (RTL), Playwright e2e, RAG eval metrics, demo video
 

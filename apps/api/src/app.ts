@@ -10,6 +10,7 @@ import { usersRouter } from "./routes/users.js";
 import { auditRouter } from "./routes/audit.js";
 import { documentsRouter } from "./routes/documents.js";
 import { askRouter } from "./routes/ask.js";
+import { metricsRouter } from "./routes/metrics.js";
 
 export function createApp() {
   const app = express();
@@ -33,6 +34,7 @@ export function createApp() {
   app.use("/api/v1/audit", auditRouter);
   app.use("/api/v1/documents", documentsRouter);
   app.use("/api/v1/ask", askRouter);
+  app.use("/api/v1/metrics", metricsRouter);
 
   app.use((_req, res) => res.status(404).json({ error: "not found" }));
   app.use(errorHandler);

@@ -8,11 +8,16 @@ import logging
 import time
 import uuid
 
+from datetime import date
+from typing import Literal
+
 import numpy as np
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from .anomaly import detect
 from .chunking import Chunk, chunk_text
+from .insights import KpiDelta, NamedAnomaly, summarize
 from .config import settings
 from .db import get_pool
 from .embeddings import embed_batched, get_embedder
@@ -21,7 +26,7 @@ from .llm import cited_numbers, generate_answer
 from .retrieval import hybrid_search
 
 log = logging.getLogger("opsmind.ai")
-app = FastAPI(title="OpsMind AI", version="0.2.0")
+app = FastAPI(title="OpsMind AI", version="0.3.0")
 
 
 def internal_auth(x_internal_token: str = Header(default="")) -> None:
@@ -154,5 +159,97 @@ def ask(req: AskRequest) -> AskResponse:
             for i, h in enumerate(hits, 1)
         ],
         provider=settings.llm_provider,
+        ms=round((time.perf_counter() - started) * 1000),
+    )
+
+
+class SeriesPoint(BaseModel):
+    day: date
+    value: float
+
+
+class MetricSeries(BaseModel):
+    id: str = Field(max_length=64)
+    name: str = Field(max_length=80)
+    unit: str = Field(default="", max_length=12)
+    direction: Literal["up", "down"] = "up"
+    points: list[SeriesPoint] = Field(default_factory=list, max_length=2000)
+
+
+class KpiIn(BaseModel):
+    name: str = Field(max_length=80)
+    unit: str = Field(default="", max_length=12)
+    direction: Literal["up", "down"] = "up"
+    current: float | None = None
+    previous: float | None = None
+    delta_pct: float | None = None
+
+
+class InsightsRequest(BaseModel):
+    start: date
+    end: date
+    metrics: list[MetricSeries] = Field(max_length=100)
+    kpis: list[KpiIn] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def _range(self) -> "InsightsRequest":
+        if self.end < self.start:
+            raise ValueError("end must not be before start")
+        return self
+
+
+class AnomalyOut(BaseModel):
+    metric_id: str
+    metric: str
+    unit: str
+    day: date
+    value: float
+    expected: float
+    deviation_pct: float | None
+    z: float
+    severity: Literal["medium", "high"]
+    kind: Literal["spike", "drop"]
+    bad: bool
+
+
+class InsightsResponse(BaseModel):
+    anomalies: list[AnomalyOut]
+    summary: str
+    provider: str
+    ms: int
+
+
+@app.post("/v1/insights", response_model=InsightsResponse, dependencies=[Depends(internal_auth)])
+def insights(req: InsightsRequest) -> InsightsResponse:
+    started = time.perf_counter()
+    anomalies = [
+        AnomalyOut(metric_id=m.id, metric=m.name, unit=m.unit, **a.__dict__)
+        for m in req.metrics
+        for a in detect([(p.day, p.value) for p in m.points], req.start, req.end, m.direction)
+    ]
+    # Newest first; within a day, the strongest signal first.
+    anomalies.sort(key=lambda a: (a.day, abs(a.z)), reverse=True)
+
+    summary, provider = summarize(
+        [KpiDelta(**k.model_dump()) for k in req.kpis],
+        [
+            NamedAnomaly(
+                metric=a.metric,
+                unit=a.unit,
+                day=a.day,
+                value=a.value,
+                expected=a.expected,
+                deviation_pct=a.deviation_pct,
+                z=a.z,
+                kind=a.kind,
+                bad=a.bad,
+            )
+            for a in anomalies
+        ],
+    )
+    return InsightsResponse(
+        anomalies=anomalies,
+        summary=summary,
+        provider=provider,
         ms=round((time.perf_counter() - started) * 1000),
     )
