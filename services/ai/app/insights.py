@@ -133,7 +133,7 @@ def summarize(kpis: list[KpiDelta], anomalies: list[NamedAnomaly]) -> tuple[str,
         ],
     }
     try:
-        text = chat(SYSTEM_PROMPT, json.dumps(payload, ensure_ascii=False), timeout=SUMMARY_TIMEOUT)
+        text = chat(SYSTEM_PROMPT, json.dumps(payload, ensure_ascii=False), timeout=SUMMARY_TIMEOUT, kind="summary")
         return text.strip(), settings.llm_provider
     except Exception:
         log.exception("llm summary failed; using template")

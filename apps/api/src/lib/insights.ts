@@ -1,4 +1,5 @@
 import { aiPost } from "./aiClient.js";
+import { insightsCache } from "./apiMetrics.js";
 import { addDays } from "./dates.js";
 import { getDailySeries, type Dashboard } from "./metrics.js";
 import { cacheGet, cacheSet, dataVersion } from "./redis.js";
@@ -54,6 +55,7 @@ export async function getInsights(tenantId: string, dashboard: Dashboard): Promi
   const { from, to } = dashboard.period;
   const key = `insights:${tenantId}:${from}:${to}:v${await dataVersion(tenantId)}`;
   const cached = await cacheGet<Insights>(key);
+  insightsCache.inc({ result: cached ? "hit" : "miss" });
   if (cached) return cached;
 
   const daily = await getDailySeries(tenantId, addDays(from, -LOOKBACK_DAYS), to);

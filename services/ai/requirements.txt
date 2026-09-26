@@ -7,3 +7,9 @@ psycopg-pool==3.2.4
 pgvector==0.3.6
 numpy==2.2.1
 pypdf==5.1.0
+prometheus-client==0.26.0
+opentelemetry-sdk==1.45.0
+opentelemetry-exporter-otlp-proto-http==1.45.0
+opentelemetry-instrumentation-fastapi==0.66b0
+opentelemetry-instrumentation-httpx==0.66b0
+opentelemetry-instrumentation-psycopg==0.66b0

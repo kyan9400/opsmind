@@ -11,6 +11,7 @@ import httpx
 from .config import settings
 from .embeddings import tokenize
 from .retrieval import Hit
+from .telemetry import LLM_DURATION, timed
 
 Timeout = float | httpx.Timeout
 
@@ -78,12 +79,13 @@ def has_llm() -> bool:
     return settings.llm_provider in PROVIDERS
 
 
-def chat(system: str, user: str, timeout: Timeout | None = None) -> str:
+def chat(system: str, user: str, timeout: Timeout | None = None, kind: str = "answer") -> str:
     """Single-turn completion with the configured provider (its default timeout unless given)."""
     if settings.llm_provider not in PROVIDERS:
         raise ValueError(f"LLM_PROVIDER {settings.llm_provider!r} has no chat model")
     fn = PROVIDERS[settings.llm_provider]
-    return fn(system, user) if timeout is None else fn(system, user, timeout)
+    with timed(LLM_DURATION, provider=settings.llm_provider, kind=kind):
+        return fn(system, user) if timeout is None else fn(system, user, timeout)
 
 
 # ---------------------------------------------------------------- RAG answers
