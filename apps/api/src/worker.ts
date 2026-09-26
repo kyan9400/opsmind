@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { UnrecoverableError, Worker } from "bullmq";
 import { pool, query } from "./lib/db.js";
 import { aiPost } from "./lib/aiClient.js";
@@ -38,10 +39,17 @@ worker.on("failed", async (job, err) => {
   }
 });
 
+// Liveness heartbeat for container healthchecks: touched only while the worker is connected and running.
+const HEARTBEAT_FILE = process.env.WORKER_HEARTBEAT_FILE ?? "/tmp/worker-heartbeat";
+const heartbeat = setInterval(() => {
+  if (worker.isRunning()) writeFile(HEARTBEAT_FILE, String(Date.now())).catch(() => {});
+}, 5_000);
+
 console.log("opsmind worker started");
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
+    clearInterval(heartbeat);
     await worker.close();
     await pool.end();
     process.exit(0);

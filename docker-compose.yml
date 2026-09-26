@@ -45,7 +45,12 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
       REDIS_URL: redis://redis:6379
       AI_SERVICE_URL: http://ai:8000
-    healthcheck: { disable: true }
+    # Healthy while the worker keeps its heartbeat file fresher than 30s.
+    healthcheck:
+      test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/worker-heartbeat) )) -lt 30"]
+      interval: 10s
+      start_period: 10s
+      retries: 3
     depends_on:
       api: { condition: service_healthy } # api runs migrations on start
       ai: { condition: service_healthy }
