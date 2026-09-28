@@ -18,6 +18,7 @@ const QUIET_PATHS = new Set(["/metrics", "/health", "/ready"]);
 
 export function createApp() {
   const app = express();
+  app.set("trust proxy", config.TRUST_PROXY);
   app.use(helmet());
   // Expose Content-Disposition so the browser can read export filenames on this cross-origin API.
   app.use(cors({ origin: config.CORS_ORIGIN, exposedHeaders: ["Content-Disposition"] }));
