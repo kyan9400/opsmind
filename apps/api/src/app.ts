@@ -10,11 +10,13 @@ import { usersRouter } from "./routes/users.js";
 import { auditRouter } from "./routes/audit.js";
 import { documentsRouter } from "./routes/documents.js";
 import { askRouter } from "./routes/ask.js";
+import { metricsRouter } from "./routes/metrics.js";
 
 export function createApp() {
   const app = express();
   app.use(helmet());
-  app.use(cors({ origin: config.CORS_ORIGIN }));
+  // Expose Content-Disposition so the browser can read export filenames on this cross-origin API.
+  app.use(cors({ origin: config.CORS_ORIGIN, exposedHeaders: ["Content-Disposition"] }));
   app.use(express.json({ limit: "1mb" }));
   if (config.NODE_ENV !== "test") app.use(pinoHttp());
 
@@ -33,6 +35,7 @@ export function createApp() {
   app.use("/api/v1/audit", auditRouter);
   app.use("/api/v1/documents", documentsRouter);
   app.use("/api/v1/ask", askRouter);
+  app.use("/api/v1/metrics", metricsRouter);
 
   app.use((_req, res) => res.status(404).json({ error: "not found" }));
   app.use(errorHandler);

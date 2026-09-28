@@ -43,4 +43,24 @@ echo "$ANSWER" | jq .
 echo "$ANSWER" | jq -e '.answer | test("30")' >/dev/null
 echo "$ANSWER" | jq -e '[.citations[] | select(.cited)] | length > 0' >/dev/null
 
+echo "→ load demo KPIs"
+curl -fsS -X POST "$API/api/v1/metrics/demo" -H "$AUTH" | jq -e '.imported.metrics == 6' >/dev/null
+
+echo "→ dashboard"
+curl -fsS "$API/api/v1/metrics/dashboard?days=30&bucket=week" -H "$AUTH" | jq -e '.kpis | length == 6' >/dev/null
+
+echo "→ insights (the demo's injected incidents must be found)"
+INSIGHTS=$(curl -fsS "$API/api/v1/metrics/insights?days=30" -H "$AUTH")
+echo "$INSIGHTS" | jq '{summary, anomalies: [.anomalies[] | {metric, day, deviationPct, bad}]}'
+for metric in "Revenue" "Support tickets" "Avg resolution time" "Customer satisfaction"; do
+  echo "$INSIGHTS" | jq -e --arg m "$metric" '[.anomalies[] | select(.metric == $m and .bad)] | length >= 1' >/dev/null \
+    || { echo "missing anomaly for $metric"; exit 1; }
+done
+
+echo "→ exports"
+curl -fsS "$API/api/v1/metrics/export?format=xlsx&days=30" -H "$AUTH" -o "$TMP/report.xlsx"
+[ "$(head -c 2 "$TMP/report.xlsx")" = "PK" ] || { echo "xlsx export is not a zip"; exit 1; }
+curl -fsS "$API/api/v1/metrics/export?format=pdf&days=30" -H "$AUTH" -o "$TMP/report.pdf"
+[ "$(head -c 5 "$TMP/report.pdf")" = "%PDF-" ] || { echo "pdf export is not a PDF"; exit 1; }
+
 echo "✓ smoke test passed"

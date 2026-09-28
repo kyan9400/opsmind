@@ -2,6 +2,35 @@
 
 :root {
   color-scheme: light dark;
+
+  /* Chart tokens (validated palette: series slot 1, status colours, recessive chrome). */
+  --viz-surface: #fcfcfb;
+  --viz-series-1: #2a78d6;
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-ink: #0b0b0b;
+  --viz-ink-2: #52514e;
+  --viz-good: #0ca30c;
+  --viz-critical: #d03b3b;
+  --viz-good-text: #006300;
+  --viz-critical-text: #d03b3b;
+  --viz-border: rgba(11, 11, 11, 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --viz-surface: #1a1a19;
+    --viz-series-1: #3987e5;
+    --viz-grid: #2c2c2a;
+    --viz-axis: #383835;
+    --viz-muted: #898781;
+    --viz-ink: #ffffff;
+    --viz-ink-2: #c3c2b7;
+    --viz-good-text: #0ca30c;
+    --viz-critical-text: #e66767; /* status red is 3.6:1 on the dark surface; this is 5.4:1 for text */
+    --viz-border: rgba(255, 255, 255, 0.1);
+  }
 }
 
 body {
