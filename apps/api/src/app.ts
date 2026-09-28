@@ -8,6 +8,8 @@ import { errorHandler } from "./middleware/errors.js";
 import { authRouter } from "./routes/auth.js";
 import { usersRouter } from "./routes/users.js";
 import { auditRouter } from "./routes/audit.js";
+import { documentsRouter } from "./routes/documents.js";
+import { askRouter } from "./routes/ask.js";
 
 export function createApp() {
   const app = express();
@@ -29,6 +31,8 @@ export function createApp() {
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/users", usersRouter);
   app.use("/api/v1/audit", auditRouter);
+  app.use("/api/v1/documents", documentsRouter);
+  app.use("/api/v1/ask", askRouter);
 
   app.use((_req, res) => res.status(404).json({ error: "not found" }));
   app.use(errorHandler);

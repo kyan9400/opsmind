@@ -2,10 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiError, clearToken, type AuditEvent, type Me, type Role, type User } from "@/lib/api";
-
-const RANK: Role[] = ["viewer", "member", "admin", "owner"];
-const atLeast = (r: Role, min: Role) => RANK.indexOf(r) >= RANK.indexOf(min);
+import { api, ApiError, atLeast, RANK, type AuditEvent, type Me, type User } from "@/lib/api";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -46,20 +43,9 @@ export default function Dashboard() {
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      <header className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-zinc-500">{me.tenantName}</p>
-          <h1 className="text-2xl font-semibold">Welcome, {me.name}</h1>
-        </div>
-        <button
-          onClick={() => {
-            clearToken();
-            router.push("/login");
-          }}
-          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700"
-        >
-          Sign out
-        </button>
+      <header>
+        <p className="text-sm text-zinc-500">{me.tenantName}</p>
+        <h1 className="text-2xl font-semibold">Welcome, {me.name}</h1>
       </header>
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
