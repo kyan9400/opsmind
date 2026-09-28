@@ -5,7 +5,7 @@
 **An AI-powered operations and knowledge platform for small businesses.**
 Teams upload their documents and connect operational data, then get cited AI answers, live KPI dashboards with anomaly hints, and multi-tenant, role-based administration — all shipped with CI/CD, containers and observability.
 
-> Status: **Week 3 of 5 — Analytics** (KPI dashboard, anomaly detection, Excel/PDF reports) on top of the RAG pipeline and the Week 1 foundation. See the [roadmap](#roadmap).
+> Status: **Week 4 of 5 — Operations** (metrics, tracing, Kubernetes, load tests, infrastructure as code) on top of analytics, RAG and the multi-tenant foundation. See the [roadmap](#roadmap).
 
 ## Architecture
 
@@ -240,7 +240,7 @@ CI runs every suite against real Postgres + Redis service containers. It then st
 - [x] **Week 1 — Foundation:** monorepo, auth, multi-tenancy, RBAC, audit log, Docker, CI
 - [x] **Week 2 — RAG:** document upload, ingestion queue, embeddings in pgvector, hybrid search (vector + full-text, RRF), cited answers, local LLM option
 - [x] **Week 3 — Analytics:** KPI dashboard, CSV import, seasonal anomaly detection with AI summaries, Excel/PDF reports
-- [ ] **Week 4 — Ops:** Kubernetes manifests / Helm, Terraform, OpenTelemetry + Prometheus + Grafana, k6 load tests
+- [x] **Week 4 — Ops:** Prometheus metrics, Grafana dashboards and alerts, OpenTelemetry tracing across services and the queue, Helm chart tested on kind, Terraform (Yandex Cloud) + Caddy HTTPS + CD, k6 load tests
 - [ ] **Week 5 — Polish:** EN/RU/AR (RTL), Playwright e2e, RAG eval metrics, demo video
 
 ## Author
