@@ -1,0 +1,8 @@
+# Terraform state contains the generated app secrets; never commit it.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+*.tfplan

@@ -1,0 +1,106 @@
+{{- if .Values.redis.enabled }}
+{{- $r := .Values.redis }}
+{{- $name := printf "%s-redis" (include "opsmind.fullname" .) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "redis") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "redis") | nindent 4 }}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP
+{{- if $r.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "redis") | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with $r.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $r.persistence.size | quote }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "redis") | nindent 4 }}
+spec:
+  replicas: 1
+  # A second pod must never start against the same RWO volume / queue state.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "redis") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opsmind.labels" (dict "ctx" . "component" "redis") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "opsmind.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "opsmind.podSecurityContext" (dict "ctx" . "component" $r) | nindent 8 }}
+      containers:
+        - name: redis
+          image: "{{ $r.image.repository }}:{{ $r.image.tag }}"
+          imagePullPolicy: {{ $r.image.pullPolicy }}
+          args:
+            - redis-server
+            - --dir
+            - /data
+            - --appendonly
+            - {{ ternary "yes" "no" $r.persistence.enabled | quote }}
+            - --save
+            - ""
+            # BullMQ requires noeviction: an evicted job key silently loses work.
+            - --maxmemory-policy
+            - noeviction
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          # exec probes run inside the pod, so they keep working under a default-deny NetworkPolicy.
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli ping | grep -q PONG"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          {{- if $r.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

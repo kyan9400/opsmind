@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanStatusCode, context, propagation, trace } from "@opentelemetry/api";
 import { UnrecoverableError, Worker } from "bullmq";
 import client from "@prometheus-io/client";
 import { pool, query } from "./lib/db.js";
@@ -31,10 +31,12 @@ const tracer = trace.getTracer("opsmind-worker");
 const worker = new Worker<IngestJob>(
   INGEST_QUEUE,
   (job) =>
-    // One span per attempt; the HTTP call to the AI service (and its DB work) nests under it.
+    // One span per attempt, parented to the upload request that enqueued the job; the HTTP call to
+    // the AI service (and its DB work) nests under it, so upload -> ingest reads as one trace.
     tracer.startActiveSpan(
       "ingest document",
       { attributes: { "document.id": job.data.documentId, "job.attempt": job.attemptsMade + 1 } },
+      propagation.extract(context.active(), job.data.trace ?? {}),
       async (span) => {
         try {
           const { status, data } = await aiPost<{ chunks?: number; ms?: number; detail?: string }>(

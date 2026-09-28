@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opsmind.configMapName" . }}
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "config") | nindent 4 }}
+data:
+  NODE_ENV: {{ .Values.config.nodeEnv | quote }}
+  CORS_ORIGIN: {{ .Values.config.corsOrigin | quote }}
+  REDIS_URL: {{ include "opsmind.redisUrl" . | quote }}
+  AI_SERVICE_URL: {{ printf "http://%s-ai:%v" (include "opsmind.fullname" .) .Values.ai.port | quote }}
+  EMBED_PROVIDER: {{ .Values.config.embedProvider | quote }}
+  LLM_PROVIDER: {{ .Values.config.llmProvider | quote }}
+  {{- with .Values.config.otel.endpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ . | quote }}
+  {{- end }}

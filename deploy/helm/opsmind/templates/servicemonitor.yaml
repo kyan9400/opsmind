@@ -1,0 +1,26 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+{{- $sm := .Values.metrics.serviceMonitor }}
+{{- /* component -> Service port name that serves /metrics */}}
+{{- $targets := dict "api" "http" "ai" "http" "worker" "metrics" }}
+{{- range $component := list "api" "ai" "worker" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "opsmind.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" $ "component" $component) | nindent 4 }}
+    {{- with $sm.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "opsmind.selectorLabels" (dict "ctx" $ "component" $component) | nindent 6 }}
+  endpoints:
+    - port: {{ get $targets $component }}
+      path: /metrics
+      interval: {{ $sm.interval }}
+      scrapeTimeout: {{ $sm.scrapeTimeout }}
+{{- end }}
+{{- end }}

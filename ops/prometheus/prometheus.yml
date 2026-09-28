@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml # resolved relative to this file
+
+# One job per service so `up{job=...}` and the target-down alert name the broken component.
+#
+# Every target carries a `service` label. The Node processes (api, worker) already set it as a
+# default label on every series; the Python ai service only sets it on its own metrics, not on
+# the process_* collectors. honor_labels keeps a series' own `service` when present and falls
+# back to the target label otherwise, so all series end up labelled consistently.
+scrape_configs:
+  - job_name: api
+    honor_labels: true
+    static_configs:
+      - targets: ["api:4000"]
+        labels: { service: api }
+
+  # DNS discovery rather than a static target: Docker's embedded DNS returns one A record per
+  # replica, so `docker compose up --scale worker=N` is scraped without config changes.
+  - job_name: worker
+    honor_labels: true
+    dns_sd_configs:
+      - names: ["worker"]
+        type: A
+        port: 9100
+        refresh_interval: 30s
+    relabel_configs:
+      - target_label: service
+        replacement: worker
+
+  - job_name: ai
+    honor_labels: true
+    static_configs:
+      - targets: ["ai:8000"]
+        labels: { service: ai }

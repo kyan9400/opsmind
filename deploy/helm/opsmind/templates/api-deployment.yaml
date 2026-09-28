@@ -1,0 +1,145 @@
+{{- $c := .Values.api }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opsmind.fullname" . }}-api
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "api") | nindent 4 }}
+spec:
+  {{- if not $c.autoscaling.enabled }}
+  replicas: {{ $c.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never dip below the current capacity during a rollout.
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opsmind.labels" (dict "ctx" . "component" "api") | nindent 8 }}
+      annotations:
+        {{- include "opsmind.checksumAnnotations" . | nindent 8 }}
+        {{- include "opsmind.scrapeAnnotations" (dict "ctx" . "port" $c.port) | nindent 8 }}
+        {{- with $c.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "opsmind.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "opsmind.podSecurityContext" (dict "ctx" . "component" $c) | nindent 8 }}
+      terminationGracePeriodSeconds: {{ $c.terminationGracePeriodSeconds }}
+      {{- if $c.migrations.enabled }}
+      initContainers:
+        # Runs the image's migration step separately from the server so a failed migration blocks
+        # the new ReplicaSet instead of crash-looping the serving container.
+        - name: migrate
+          image: {{ include "opsmind.image" (dict "ctx" . "image" $c.image) }}
+          imagePullPolicy: {{ include "opsmind.imagePullPolicy" (dict "ctx" . "image" $c.image) }}
+          command:
+            - sh
+            - -c
+            - |
+              for i in $(seq 1 {{ int $c.migrations.maxAttempts }}); do
+                node dist/lib/migrate.js && exit 0
+                echo "migration attempt $i failed, retrying" >&2
+                sleep 2
+              done
+              exit 1
+          envFrom:
+            - configMapRef:
+                name: {{ include "opsmind.configMapName" . }}
+          env:
+            {{- include "opsmind.nodeEnv" . | nindent 12 }}
+            - name: OTEL_SERVICE_NAME
+              value: opsmind-migrate
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- end }}
+      containers:
+        - name: api
+          image: {{ include "opsmind.image" (dict "ctx" . "image" $c.image) }}
+          imagePullPolicy: {{ include "opsmind.imagePullPolicy" (dict "ctx" . "image" $c.image) }}
+          # Bypasses the image CMD (migrate && serve); migrations ran in the initContainer.
+          command: ["node", "dist/server.js"]
+          ports:
+            - name: http
+              containerPort: {{ $c.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "opsmind.configMapName" . }}
+          env:
+            {{- include "opsmind.nodeEnv" . | nindent 12 }}
+            - name: API_PORT
+              value: {{ $c.port | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: opsmind-api
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          # Liveness only checks the process; a DB outage must not restart every replica.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness takes a replica out of rotation while it cannot reach Postgres.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              # Keeps serving while endpoints/ingress drop the pod, before SIGTERM closes the listener.
+              exec:
+                command: ["sleep", "5"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+      {{- with $c.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,79 @@
+# Observability stack, layered on top of the base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build
+#
+# Prometheus  http://localhost:9090   metrics + alert rules
+# Grafana     http://localhost:3001   "OpsMind overview" dashboard (3000 is taken by the web app)
+# Jaeger      http://localhost:16686  distributed traces (api -> worker -> ai -> postgres)
+
+services:
+  # Tracing is a no-op in the services until the OTLP endpoint is set, so the base stack stays
+  # lean and only this override turns it on. Spans are dropped (not queued forever) if Jaeger is down.
+  api:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_SERVICE_NAME: opsmind-api
+
+  worker:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_SERVICE_NAME: opsmind-worker
+
+  ai:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_SERVICE_NAME: opsmind-ai
+
+  prometheus:
+    image: prom/prometheus:v3.5.0 # LTS line; keep in sync with the promtool image in CI
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Cap by age *and* size so a long-running demo can't fill the host disk.
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-7d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-1GB}
+      # Lets you edit alerts.yml and `curl -X POST localhost:9090/-/reload` without a restart.
+      - --web.enable-lifecycle
+    volumes:
+      - ./ops/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports: ["9090:9090"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 10s
+      retries: 6
+
+  grafana:
+    image: grafana/grafana-oss:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-opsmind_dev_grafana}
+      # Read-only anonymous access so the demo dashboard opens without a login.
+      # Never enable this on an internet-facing Grafana.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/opsmind-overview.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["3001:3000"]
+    depends_on:
+      prometheus: { condition: service_healthy }
+      jaeger: { condition: service_started }
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.71.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      # In-memory storage: bound it so a busy demo doesn't grow without limit. Traces vanish on restart.
+      MEMORY_MAX_TRACES: "50000"
+    ports:
+      - "16686:16686" # UI
+      - "4318:4318" # OTLP/HTTP, also reachable from services running on the host
+
+volumes:
+  prometheus-data:
+  grafana-data:

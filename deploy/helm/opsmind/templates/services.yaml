@@ -1,0 +1,65 @@
+{{- $fullname := include "opsmind.fullname" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-api
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "api") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.api.port }}
+      targetPort: http
+      protocol: TCP
+---
+# Headless: exists only so Prometheus (ServiceMonitor) can discover worker pods for scraping.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-worker-metrics
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "worker") | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "worker") | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.worker.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-ai
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "ai") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "ai") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.ai.port }}
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-web
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "web") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "web") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.web.port }}
+      targetPort: http
+      protocol: TCP

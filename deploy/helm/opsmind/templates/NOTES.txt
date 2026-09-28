@@ -1,0 +1,30 @@
+OpsMind {{ .Chart.AppVersion }} is deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+{{- if .Values.ingress.enabled }}
+
+Open the UI at: http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host | default "<ingress address>" }}/
+The API is served on the same host under /api. Build the web image with
+NEXT_PUBLIC_API_URL set to that public URL (it is baked in at build time).
+{{- else }}
+
+Access locally with port-forwards:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opsmind.fullname" . }}-api {{ .Values.api.port }}:{{ .Values.api.port }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opsmind.fullname" . }}-web {{ .Values.web.port }}:{{ .Values.web.port }}
+Then open http://localhost:{{ .Values.web.port }}
+{{- end }}
+
+Check health:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+{{- if not .Values.secrets.existingSecret }}
+
+Generated credentials live in Secret "{{ include "opsmind.secretName" . }}" and are reused on upgrade.
+It is kept on uninstall (helm.sh/resource-policy: keep); delete it together with the Postgres PVC
+when removing the release for good.
+{{- end }}
+{{- if not .Values.postgresql.enabled }}
+
+Using an external database: it must offer the pgvector extension; the migrations run
+"CREATE EXTENSION IF NOT EXISTS vector" and need the privilege to do so.
+{{- end }}

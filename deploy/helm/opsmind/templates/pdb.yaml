@@ -1,0 +1,16 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- range $component := list "api" "worker" "ai" "web" }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "opsmind.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" $ "component" $component) | nindent 4 }}
+spec:
+  maxUnavailable: {{ $.Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "opsmind.selectorLabels" (dict "ctx" $ "component" $component) | nindent 6 }}
+{{- end }}
+{{- end }}
