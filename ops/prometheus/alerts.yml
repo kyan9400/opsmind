@@ -1,0 +1,96 @@
+groups:
+  - name: opsmind-slo
+    rules:
+      - alert: OpsmindHigh5xxRatio
+        # The traffic floor stops a single failed request at 3am from paging anyone.
+        expr: |
+          (
+            sum by (service) (rate(http_request_duration_seconds_count{status_code=~"5.."}[5m]))
+              /
+            sum by (service) (rate(http_request_duration_seconds_count[5m]))
+          ) > 0.05
+          and
+          sum by (service) (rate(http_request_duration_seconds_count[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.service }}: {{ $value | humanizePercentage }} of requests are failing with 5xx"
+          description: More than 5% of HTTP requests to {{ $labels.service }} returned a 5xx over the last 5 minutes.
+          runbook: |
+            1. Grafana "OpsMind overview" > Traffic & errors: find the route(s) driving the errors.
+            2. `docker compose logs --since 15m {{ $labels.service }}` for stack traces.
+            3. Jaeger: search service opsmind-{{ $labels.service }} with tag error=true to see which hop fails
+               (postgres, redis, the ai service or an upstream LLM provider).
+            4. If the ai service is the culprit, api 5xx on /insights and /ask usually follow; fix ai first.
+
+      - alert: OpsmindApiHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{service="api"}[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "api p95 latency is {{ $value | humanizeDuration }} (SLO 1s)"
+          description: The 95th percentile of api request latency has been above 1s for 10 minutes.
+          runbook: |
+            1. Grafana > Latency: check p95 by route; a single slow route points at one dependency.
+            2. AI row: LLM/embedding p95 by provider. A slow external provider shows up here first.
+            3. Insights cache hit ratio: a cold or flushed Redis sends every /insights call to the LLM.
+            4. Runtime row: high event-loop lag or CPU on api means the process itself is saturated.
+            5. Jaeger: sort opsmind-api traces by duration and look at the widest child span.
+
+  - name: opsmind-ingestion
+    rules:
+      - alert: OpsmindIngestQueueBacklog
+        expr: max(opsmind_queue_jobs{queue="ingest", state="waiting"}) > 50
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} documents waiting in the ingest queue"
+          description: The ingest queue has held more than 50 waiting jobs for 10 minutes; uploads are not becoming searchable.
+          runbook: |
+            1. Is the worker up? Check the OpsmindTargetDown alert and `docker compose ps worker`.
+            2. Ingestion row: if "active" is flat at the worker concurrency while job p95 climbs, the ai
+               service or embedding provider is the bottleneck, not the worker.
+            3. If throughput is healthy but arrivals are higher, scale out:
+               `docker compose up -d --scale worker=3`.
+
+      - alert: OpsmindIngestFailureRate
+        # Counts attempts, so retries that later succeed still register; 20% keeps that noise out.
+        expr: |
+          (
+            sum(rate(opsmind_ingest_jobs_total{outcome="failed"}[15m]))
+              /
+            sum(rate(opsmind_ingest_jobs_total[15m]))
+          ) > 0.2
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of ingestion attempts are failing"
+          description: More than 20% of ingestion job attempts failed over the last 15 minutes.
+          runbook: |
+            1. `docker compose logs --since 30m worker | grep "ingest failed"`: `final=true` entries are
+               bad files (422/404) and need no action; transient ones point at the ai service.
+            2. Check ai service health and its 5xx ratio on /v1/ingest in Grafana.
+            3. Jaeger: open a failed "ingest document" span; the exception and the failing child span are attached.
+
+  - name: opsmind-availability
+    rules:
+      - alert: OpsmindTargetDown
+        expr: up{job=~"api|worker|ai"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.job }} is not being scraped ({{ $labels.instance }})"
+          description: Prometheus has failed to scrape {{ $labels.job }} for 2 minutes; the process is down or /metrics is unreachable.
+          runbook: |
+            1. `docker compose ps {{ $labels.job }}`: restarting or unhealthy?
+            2. `docker compose logs --tail 200 {{ $labels.job }}` for the crash reason
+               (missing env var, failed migration, postgres/redis unreachable).
+            3. Prometheus > Status > Targets shows the exact scrape error (timeout vs connection refused).

@@ -1,0 +1,134 @@
+#cloud-config
+# Rendered by Terraform templatefile(); cloud-init runs it once, on first boot.
+# Progress: `sudo tail -f /var/log/cloud-init-output.log` on the VM.
+
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - fail2ban
+  - git
+  - jq
+  - unattended-upgrades
+
+ssh_pwauth: false
+disable_root: true
+
+# No "default" entry: the stock ubuntu user is not created, so the only login is the deploy user.
+users:
+  - name: ${deploy_user}
+    shell: /bin/bash
+    lock_passwd: true
+    # Membership in the docker group is root-equivalent anyway; sudo is for OS maintenance.
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+%{ for key in ssh_public_keys ~}
+      - ${jsonencode(trimspace(key))}
+%{ endfor ~}
+
+# Image builds (Next.js especially) spike memory; swap turns an OOM kill into a slow build.
+swap:
+  filename: /swapfile
+  size: ${swap_size}
+  maxsize: ${swap_size}
+
+write_files:
+  # Written before Docker is installed, so the daemon starts with these settings.
+  - path: /etc/docker/daemon.json
+    permissions: "0644"
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "3" },
+%{ if docker_registry_mirror != "" ~}
+        "registry-mirrors": [${jsonencode(docker_registry_mirror)}],
+%{ endif ~}
+        "live-restore": true
+      }
+
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+
+  # Staged as root-only; the bootstrap moves it into the checkout once the repo is cloned.
+  - path: /root/opsmind.env
+    permissions: "0600"
+    content: |
+      ${indent(6, trimspace(env_file))}
+
+  # restart: unless-stopped covers crashes; this unit brings the stack back after a reboot
+  # or a preemption, including containers that ExecStop stopped on shutdown.
+  - path: /etc/systemd/system/opsmind.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=OpsMind docker compose stack
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      User=${deploy_user}
+      WorkingDirectory=/opt/opsmind
+      # Containers must not reach the metadata service: it serves this VM's user-data,
+      # which contains the app secrets. "+" runs this line as root.
+      ExecStartPre=+/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null || iptables -I DOCKER-USER -d 169.254.169.254/32 -j REJECT'
+      ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+      ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml stop
+      TimeoutStartSec=30min
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # Every deploy rebuilds images; without pruning, dangling layers fill the disk in weeks.
+  # 72h keeps the previous images around for a quick rollback.
+  - path: /etc/cron.daily/docker-prune
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      docker image prune -af --filter "until=72h" > /dev/null
+      docker builder prune -af --filter "until=72h" > /dev/null
+
+  - path: /usr/local/sbin/opsmind-bootstrap
+    permissions: "0700"
+    content: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+
+      # Docker's own repo: Ubuntu's docker.io lags behind and has no compose v2 plugin,
+      # and docker-compose.prod.yml needs compose >= 2.24 for `!reset`.
+      install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL --retry 5 https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+      chmod a+r /etc/apt/keyrings/docker.asc
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+        > /etc/apt/sources.list.d/docker.list
+      apt-get update
+      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      systemctl enable --now docker
+      usermod -aG docker ${deploy_user}
+
+      install -d -o ${deploy_user} -g ${deploy_user} /opt/opsmind
+      if [ ! -d /opt/opsmind/.git ]; then
+        sudo -H -u ${deploy_user} git clone --branch "${repo_branch}" "${repo_url}" /opt/opsmind
+      fi
+      install -m 0600 -o ${deploy_user} -g ${deploy_user} /root/opsmind.env /opt/opsmind/.env
+      shred -u /root/opsmind.env
+
+      systemctl daemon-reload
+      systemctl enable opsmind.service
+      # First build takes several minutes on a small VM; later boots reuse the images.
+      cd /opt/opsmind
+      sudo -H -u ${deploy_user} docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+      systemctl start opsmind.service
+
+runcmd:
+  - [/usr/local/sbin/opsmind-bootstrap]
+
+final_message: "OpsMind bootstrap finished after $UPTIME seconds"

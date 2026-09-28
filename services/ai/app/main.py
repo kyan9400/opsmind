@@ -7,26 +7,34 @@ import hmac
 import logging
 import time
 import uuid
-
 from datetime import date
 from typing import Literal
 
 import numpy as np
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field, model_validator
 
 from .anomaly import detect
 from .chunking import Chunk, chunk_text
-from .insights import KpiDelta, NamedAnomaly, summarize
 from .config import settings
 from .db import get_pool
 from .embeddings import embed_batched, get_embedder
 from .extract import extract_text
+from .insights import KpiDelta, NamedAnomaly, summarize
 from .llm import cited_numbers, generate_answer
 from .retrieval import hybrid_search
+from .telemetry import ANOMALIES, EMBED_DURATION, metrics_middleware, metrics_response, setup_tracing, timed
 
 log = logging.getLogger("opsmind.ai")
-app = FastAPI(title="OpsMind AI", version="0.3.0")
+app = FastAPI(title="OpsMind AI", version="0.4.0")
+app.middleware("http")(metrics_middleware)
+setup_tracing(app)
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics() -> Response:
+    # Internal only: the production proxy never routes to this service.
+    return metrics_response()
 
 
 def internal_auth(x_internal_token: str = Header(default="")) -> None:
@@ -72,7 +80,8 @@ def ingest(req: IngestRequest) -> dict:
         chunks = chunk_text(extract_text(bytes(content), mime_type))
         if not chunks:
             raise ValueError("no extractable text in document")
-        vectors = embed_batched(get_embedder(), [c.text for c in chunks])
+        with timed(EMBED_DURATION, provider=settings.embed_provider):
+            vectors = embed_batched(get_embedder(), [c.text for c in chunks])
     except Exception as exc:  # bad file or provider failure: record it on the document
         with pool.connection() as conn:
             conn.execute(
@@ -133,7 +142,8 @@ class AskResponse(BaseModel):
 @app.post("/v1/ask", response_model=AskResponse, dependencies=[Depends(internal_auth)])
 def ask(req: AskRequest) -> AskResponse:
     started = time.perf_counter()
-    [qvec] = get_embedder().embed([req.question])
+    with timed(EMBED_DURATION, provider=settings.embed_provider):
+        [qvec] = get_embedder().embed([req.question])
     with get_pool().connection() as conn:
         hits = hybrid_search(conn, str(req.tenant_id), req.question, qvec, req.top_k)
 
@@ -227,6 +237,8 @@ def insights(req: InsightsRequest) -> InsightsResponse:
         for m in req.metrics
         for a in detect([(p.day, p.value) for p in m.points], req.start, req.end, m.direction)
     ]
+    for a in anomalies:
+        ANOMALIES.labels(service="ai", severity=a.severity).inc()
     # Newest first; within a day, the strongest signal first.
     anomalies.sort(key=lambda a: (a.day, abs(a.z)), reverse=True)
 

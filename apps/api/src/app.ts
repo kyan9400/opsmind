@@ -11,6 +11,10 @@ import { auditRouter } from "./routes/audit.js";
 import { documentsRouter } from "./routes/documents.js";
 import { askRouter } from "./routes/ask.js";
 import { metricsRouter } from "./routes/metrics.js";
+import { registry } from "./lib/apiMetrics.js";
+import { httpMetrics, markMount } from "./lib/telemetry.js";
+
+const QUIET_PATHS = new Set(["/metrics", "/health", "/ready"]);
 
 export function createApp() {
   const app = express();
@@ -18,8 +22,16 @@ export function createApp() {
   // Expose Content-Disposition so the browser can read export filenames on this cross-origin API.
   app.use(cors({ origin: config.CORS_ORIGIN, exposedHeaders: ["Content-Disposition"] }));
   app.use(express.json({ limit: "1mb" }));
-  if (config.NODE_ENV !== "test") app.use(pinoHttp());
+  if (config.NODE_ENV !== "test") {
+    // Probes and scrapes hit these every few seconds; logging them would bury real traffic.
+    app.use(pinoHttp({ autoLogging: { ignore: (req) => QUIET_PATHS.has(req.url ?? "") } }));
+  }
+  app.use(httpMetrics(registry));
 
+  // Scraped by Prometheus on the internal network; the production proxy blocks it from the internet.
+  app.get("/metrics", async (_req, res) => {
+    res.type(registry.contentType).send(await registry.metrics());
+  });
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
   app.get("/ready", async (_req, res) => {
     try {
@@ -30,12 +42,12 @@ export function createApp() {
     }
   });
 
-  app.use("/api/v1/auth", authRouter);
-  app.use("/api/v1/users", usersRouter);
-  app.use("/api/v1/audit", auditRouter);
-  app.use("/api/v1/documents", documentsRouter);
-  app.use("/api/v1/ask", askRouter);
-  app.use("/api/v1/metrics", metricsRouter);
+  app.use("/api/v1/auth", markMount, authRouter);
+  app.use("/api/v1/users", markMount, usersRouter);
+  app.use("/api/v1/audit", markMount, auditRouter);
+  app.use("/api/v1/documents", markMount, documentsRouter);
+  app.use("/api/v1/ask", markMount, askRouter);
+  app.use("/api/v1/metrics", markMount, metricsRouter);
 
   app.use((_req, res) => res.status(404).json({ error: "not found" }));
   app.use(errorHandler);

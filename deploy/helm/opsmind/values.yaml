@@ -1,0 +1,255 @@
+# Default values for the OpsMind chart.
+# Defaults target a small production-like install: in-cluster Postgres (pgvector) and Redis,
+# hardened pods, autoscaling for the request-serving tiers. See deploy/kind/values-kind.yaml
+# for a minimal CI profile.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Shared image settings. Each component sets only its repository; the tag falls back to
+# image.tag and then to the chart's appVersion so a release pins every tier to one version.
+image:
+  # Prefix prepended to every OpsMind repository ("" for locally loaded images, e.g. kind).
+  registry: ghcr.io/kyan9400
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# -- Applied to every OpsMind pod. The images declare named users (USER node / USER app), which the
+# kubelet cannot verify as non-root, so numeric IDs are set explicitly per component below.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Applied to every container. Writable paths are provided as emptyDir mounts.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# -- Non-secret configuration shared by api, worker and ai (rendered into a ConfigMap).
+config:
+  nodeEnv: production
+  # Browser origin allowed to call the API; must match the web UI's public URL.
+  corsOrigin: http://localhost:3000
+  # Embeddings provider for the AI service: hash (offline), openai, ollama.
+  embedProvider: hash
+  # Answer generator: extractive (offline), openai, anthropic, ollama.
+  llmProvider: extractive
+  otel:
+    # OTLP/HTTP collector endpoint, e.g. http://otel-collector.observability:4318. Tracing is off when empty.
+    endpoint: ""
+
+# -- Credentials. The chart creates one Secret unless existingSecret is set.
+# Empty values are generated once and then reused on every upgrade (read back via lookup),
+# and the Secret is kept on uninstall so a retained Postgres volume stays readable.
+secrets:
+  # Name of a pre-created Secret with keys JWT_SECRET, AI_SERVICE_TOKEN, DATABASE_URL
+  # (plus POSTGRES_PASSWORD when postgresql.enabled, and optionally OPENAI_API_KEY / ANTHROPIC_API_KEY).
+  existingSecret: ""
+  jwtSecret: ""
+  # Shared by api, worker and ai for internal calls.
+  aiServiceToken: ""
+  # Keep it URL-safe: it is embedded verbatim in DATABASE_URL.
+  postgresPassword: ""
+  openaiApiKey: ""
+  anthropicApiKey: ""
+
+api:
+  replicaCount: 2
+  image:
+    repository: opsmind-api
+    tag: ""
+    pullPolicy: ""
+  port: 4000
+  # Migrations run in an initContainer; they are idempotent and serialized by a Postgres
+  # advisory lock, so concurrent replicas during a rollout are safe.
+  migrations:
+    enabled: true
+    # Retries cover a fresh install where Postgres is still initializing; kubelet crash-loop
+    # backoff would otherwise delay the rollout by minutes.
+    maxAttempts: 30
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  terminationGracePeriodSeconds: 30
+  podAnnotations: {}
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+
+worker:
+  # Uses the api image with a different entrypoint.
+  replicaCount: 1
+  metricsPort: 9100
+  # Heartbeat older than this many seconds marks the worker as hung.
+  heartbeatMaxAgeSeconds: 30
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 512Mi }
+  # Lets in-flight ingestion jobs (up to 120s AI calls) finish on SIGTERM.
+  terminationGracePeriodSeconds: 90
+  podAnnotations: {}
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+
+ai:
+  replicaCount: 1
+  image:
+    repository: opsmind-ai
+    tag: ""
+    pullPolicy: ""
+  port: 8000
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { memory: 1Gi }
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 75
+  terminationGracePeriodSeconds: 30
+  podAnnotations: {}
+  # e.g. OLLAMA_URL, OPENAI_CHAT_MODEL, ANTHROPIC_MODEL.
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  securityContext:
+    # The image's system "app" user; its files are world-readable, so any non-root UID works.
+    runAsUser: 999
+    runAsGroup: 999
+
+web:
+  replicaCount: 1
+  image:
+    repository: opsmind-web
+    tag: ""
+    pullPolicy: ""
+  port: 3000
+  # NEXT_PUBLIC_API_URL is baked in at image build time; build the image with the public API URL.
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 384Mi }
+  terminationGracePeriodSeconds: 30
+  podAnnotations: {}
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+
+# -- In-cluster Postgres with pgvector. Disable to use a managed database via externalDatabase.url
+# or secrets.existingSecret.
+postgresql:
+  enabled: true
+  image:
+    repository: pgvector/pgvector
+    tag: pg16
+    pullPolicy: IfNotPresent
+  auth:
+    username: opsmind
+    database: opsmind
+  persistence:
+    size: 8Gi
+    storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+  # UID/GID of the postgres user in the Debian-based image.
+  securityContext:
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+
+externalDatabase:
+  # postgres://user:pass@host:5432/db?sslmode=require - used when postgresql.enabled=false
+  # and no existingSecret is given. The pgvector extension must be available.
+  url: ""
+
+# -- In-cluster Redis (BullMQ queue + cache). Disable to use a managed Redis via externalRedis.url.
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 7-alpine
+    pullPolicy: IfNotPresent
+  # Without persistence, queued-but-unprocessed ingestion jobs are lost if Redis restarts.
+  persistence:
+    enabled: false
+    size: 1Gi
+    storageClass: ""
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+  securityContext:
+    runAsUser: 999
+    runAsGroup: 1000
+    fsGroup: 1000
+
+externalRedis:
+  # redis://[:password@]host:6379 - used when redis.enabled=false.
+  url: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Empty host matches any hostname.
+  host: ""
+  # - secretName: opsmind-tls
+  #   hosts: [opsmind.example.com]
+  tls: []
+
+podDisruptionBudget:
+  enabled: true
+  # maxUnavailable (not minAvailable) so single-replica tiers never block node drains.
+  maxUnavailable: 1
+
+metrics:
+  # prometheus.io/* pod annotations for annotation-based scrape configs.
+  podAnnotations: true
+  serviceMonitor:
+    # Requires the Prometheus Operator CRDs.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+networkPolicy:
+  # Default-deny ingress for all chart pods, then allow only the paths the app uses.
+  # Egress stays open: the AI service may call external LLM providers.
+  enabled: false
+  # Peers allowed to scrape /metrics on api, worker and ai (e.g. the Prometheus namespace).
+  metricsFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+
+tests:
+  enabled: true

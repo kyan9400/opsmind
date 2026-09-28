@@ -1,0 +1,6 @@
+# Single-node cluster for CI end-to-end tests. Services are reached with kubectl port-forward,
+# so no host port mappings or ingress controller are needed.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane

@@ -1,0 +1,37 @@
+# Copy to terraform.tfvars (git-ignored) and fill in.
+# Authenticate with `export YC_TOKEN=$(yc iam create-token)` or set service_account_key_file.
+
+cloud_id  = "b1gxxxxxxxxxxxxxxxxx"
+folder_id = "b1gxxxxxxxxxxxxxxxxx"
+zone      = "ru-central1-a"
+
+ssh_public_key = "ssh-ed25519 AAAAC3Nza... you@laptop"
+admin_cidr     = "203.0.113.7/32" # your public IP: curl -s https://ifconfig.me
+
+# Separate key for the GitHub Actions deploy job, so it can be revoked on its own.
+# extra_ssh_public_keys = ["ssh-ed25519 AAAAC3Nza... github-actions-deploy"]
+# GitHub-hosted runners have no fixed IPs; opening SSH to them means the whole internet
+# (key-only auth + fail2ban). Leave empty to deploy by hand.
+# ci_ssh_cidrs = ["0.0.0.0/0"]
+
+# VM size. 2 vCPU at 50%, 4 GB RAM, 30 GB SSD, preemptible.
+# cores         = 2
+# memory        = 4
+# core_fraction = 50
+# disk_size     = 30
+# preemptible   = true
+
+# repo_url    = "https://github.com/kyan9400/opsmind.git"
+# repo_branch = "main"
+
+# Leave empty to use <ip-with-dashes>.sslip.io. For your own domain, create the A record
+# first (see `terraform output public_ip`), otherwise Let's Encrypt fails.
+# domain = "opsmind.example.com"
+
+# Offline providers need no API keys. Switch when you have a key:
+# embed_provider = "openai"
+# llm_provider   = "anthropic"
+# openai_api_key    = "sk-..."
+# anthropic_api_key = "sk-ant-..."
+
+# postgres_password, jwt_secret and ai_service_token are generated automatically.

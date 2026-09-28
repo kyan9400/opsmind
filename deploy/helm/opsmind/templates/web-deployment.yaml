@@ -1,0 +1,111 @@
+{{- $c := .Values.web }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opsmind.fullname" . }}-web
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "web") | nindent 4 }}
+spec:
+  replicas: {{ $c.replicaCount }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "web") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opsmind.labels" (dict "ctx" . "component" "web") | nindent 8 }}
+      {{- with $c.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "opsmind.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "opsmind.podSecurityContext" (dict "ctx" . "component" $c) | nindent 8 }}
+      terminationGracePeriodSeconds: {{ $c.terminationGracePeriodSeconds }}
+      containers:
+        - name: web
+          image: {{ include "opsmind.image" (dict "ctx" . "image" $c.image) }}
+          imagePullPolicy: {{ include "opsmind.imagePullPolicy" (dict "ctx" . "image" $c.image) }}
+          ports:
+            - name: http
+              containerPort: {{ $c.port }}
+              protocol: TCP
+          env:
+            # The standalone server binds to $HOSTNAME, which Kubernetes sets to the pod name;
+            # without this override it would not listen on the pod IP the Service targets.
+            - name: HOSTNAME
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ $c.port | quote }}
+            - name: NODE_ENV
+              value: {{ .Values.config.nodeEnv | quote }}
+            - name: NEXT_TELEMETRY_DISABLED
+              value: "1"
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # Next.js writes its image/fetch cache here at runtime; everything else under /app is read-only.
+            - name: next-cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: next-cache
+          emptyDir:
+            sizeLimit: 256Mi
+      {{- with $c.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

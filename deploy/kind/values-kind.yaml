@@ -1,0 +1,62 @@
+# CI profile for a single-node kind cluster: locally built images loaded with
+# `kind load docker-image`, one replica per tier, small resource requests.
+
+image:
+  registry: ""
+  tag: ci
+  # Images are side-loaded into the node; never try a registry.
+  pullPolicy: Never
+
+api:
+  replicaCount: 1
+  image:
+    repository: opsmind-api
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+worker:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  # Nothing is in flight at teardown in CI.
+  terminationGracePeriodSeconds: 10
+
+ai:
+  image:
+    repository: opsmind-ai
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 768Mi }
+
+web:
+  image:
+    repository: opsmind-web
+  resources:
+    requests: { cpu: 25m, memory: 96Mi }
+    limits: { memory: 384Mi }
+
+config:
+  corsOrigin: http://localhost:3000
+
+postgresql:
+  persistence:
+    size: 1Gi
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+redis:
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+# Recent kind releases enforce NetworkPolicy in kindnet, so the e2e run checks that the
+# allow-list covers every path the app actually uses.
+networkPolicy:
+  enabled: true
+  metricsFrom: []

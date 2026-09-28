@@ -1,9 +1,12 @@
+import { context, propagation } from "@opentelemetry/api";
 import { Queue, type ConnectionOptions } from "bullmq";
 import { config } from "../config.js";
 
 export const INGEST_QUEUE = "ingest";
 export interface IngestJob {
   documentId: string;
+  /** W3C trace context of the upload request, so the worker's processing joins the same trace. */
+  trace?: Record<string, string>;
 }
 
 export function redisConnection(): ConnectionOptions {
@@ -26,9 +29,12 @@ function ingestQueue() {
 }
 
 export async function enqueueIngest(documentId: string) {
+  // Empty unless tracing is enabled; a job is a hop the HTTP instrumentation can't see on its own.
+  const trace: Record<string, string> = {};
+  propagation.inject(context.active(), trace);
   await ingestQueue().add(
     "ingest",
-    { documentId },
+    { documentId, trace },
     {
       attempts: 3,
       backoff: { type: "exponential", delay: 2000 },

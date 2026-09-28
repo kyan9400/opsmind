@@ -1,0 +1,92 @@
+name: Deploy
+
+# Runs after CI passes on main, or manually. Deploys exactly the commit CI tested.
+# workflow_run only fires once this file is on the default branch.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and never cancel one halfway through a `compose up`.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    # workflow_run also fires for pull_request runs whose head branch is called "main" (forks).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event != 'pull_request')
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      # Forks and fresh clones have no server; skip cleanly instead of failing the pipeline.
+      - id: check
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_SSH_KEY" ]; then
+            echo "::notice title=Deploy skipped::DEPLOY_HOST and/or DEPLOY_SSH_KEY secrets are not set. See infra/README.md to provision a server."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: preflight
+    if: needs.preflight.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    steps:
+      - name: Deploy ${{ needs.preflight.outputs.sha }}
+        uses: appleboy/ssh-action@v1
+        env:
+          SHA: ${{ needs.preflight.outputs.sha }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER || 'deploy' }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          # Optional host key pinning: `ssh-keyscan -t ed25519 <ip> | ssh-keygen -lf -` (SHA256:...).
+          fingerprint: ${{ secrets.DEPLOY_HOST_FINGERPRINT }}
+          command_timeout: 30m
+          envs: SHA
+          script: |
+            set -euo pipefail
+            cd /opt/opsmind
+            compose() { docker compose -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
+
+            # .env is untracked, so a hard reset keeps it while discarding any drift on the box.
+            git fetch --prune --quiet origin
+            git reset --hard --quiet "$SHA"
+            compose up -d --build --remove-orphans
+
+            # Check through Caddy on the VM itself: covers TLS, routing and API readiness
+            # without depending on hairpin NAT to the public IP.
+            DOMAIN="$(sed -n 's/^DOMAIN=//p' .env | tr -d "\"'")"
+            for attempt in $(seq 1 30); do
+              if curl -fsS --max-time 5 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/ready"; then
+                echo
+                echo "Deployed $SHA to https://$DOMAIN"
+                exit 0
+              fi
+              echo "waiting for /ready ($attempt/30)"
+              sleep 5
+            done
+
+            echo "::error::https://$DOMAIN/ready did not become healthy"
+            compose ps
+            compose logs --no-color --tail 100 api caddy
+            exit 1

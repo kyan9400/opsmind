@@ -1,0 +1,42 @@
+{{- if .Values.tests.enabled }}
+{{- $url := printf "http://%s-api:%v" (include "opsmind.fullname" .) .Values.api.port }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "opsmind.fullname" . }}-test-api-health
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "test") | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    # Not deleted on success: `helm test --logs` reads the pod's output after it finishes.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  securityContext:
+    {{- include "opsmind.podSecurityContext" (dict "ctx" . "component" .Values.api) | nindent 4 }}
+  containers:
+    # Reuses the api image (busybox wget) so the test needs no extra image pull; it goes through
+    # the Service, exercising DNS and endpoints rather than a single pod.
+    - name: api-health
+      image: {{ include "opsmind.image" (dict "ctx" . "image" .Values.api.image) }}
+      imagePullPolicy: {{ include "opsmind.imagePullPolicy" (dict "ctx" . "image" .Values.api.image) }}
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          wget -qO- -T 5 {{ $url }}/health
+          echo
+          wget -qO- -T 5 {{ $url }}/ready
+          echo
+      securityContext:
+        {{- toYaml .Values.containerSecurityContext | nindent 8 }}
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits: { memory: 64Mi }
+{{- end }}

@@ -1,0 +1,13 @@
+apiVersion: v2
+name: opsmind
+description: Multi-tenant AI ops platform - API, ingestion worker, AI service and web UI.
+type: application
+# Chart version: bump on any template or values change.
+version: 0.1.0
+# Default image tag for all OpsMind images unless overridden per component.
+appVersion: "0.4.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/kyan9400/opsmind
+sources:
+  - https://github.com/kyan9400/opsmind
+keywords: [opsmind, rag, analytics, fastapi, express, nextjs]

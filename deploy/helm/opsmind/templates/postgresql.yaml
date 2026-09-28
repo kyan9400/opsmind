@@ -1,0 +1,134 @@
+{{- if .Values.postgresql.enabled }}
+{{- $p := .Values.postgresql }}
+{{- $name := include "opsmind.postgresqlHost" . }}
+{{- $pgReady := "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1 -p 5432" }}
+# Governing headless Service for the StatefulSet (stable pod DNS).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-hl
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "opsmind.labels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+spec:
+  serviceName: {{ $name }}-hl
+  # Single primary; use a managed service or an operator for HA.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opsmind.labels" (dict "ctx" . "component" "postgresql") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "opsmind.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "opsmind.podSecurityContext" (dict "ctx" . "component" $p) | nindent 8 }}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgresql
+          image: "{{ $p.image.repository }}:{{ $p.image.tag }}"
+          imagePullPolicy: {{ $p.image.pullPolicy }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              value: {{ $p.auth.username | quote }}
+            - name: POSTGRES_DB
+              value: {{ $p.auth.database | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opsmind.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            # A subdirectory keeps initdb away from the volume root (lost+found on some provisioners).
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          # First boot runs initdb behind a socket-only temp server; the startup probe covers that window.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", {{ $pgReady | quote }}]
+            periodSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", {{ $pgReady | quote }}]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", {{ $pgReady | quote }}]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $p.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            # Unix socket and lock files; the root filesystem is read-only.
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+        # volumeClaimTemplates are immutable: only stable selector labels, never the version.
+        labels:
+          {{- include "opsmind.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml $p.persistence.accessModes | nindent 10 }}
+        {{- with $p.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $p.persistence.size | quote }}
+{{- end }}

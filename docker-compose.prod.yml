@@ -1,0 +1,109 @@
+# Production override for a single VM:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Needs Docker Compose >= 2.24 for `!reset`. DOMAIN and the secrets come from .env;
+# the `:?` checks make a missing value fail fast instead of silently using the dev defaults.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # The only container with host ports. Everything else is reachable on the compose network only.
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env, e.g. 203-0-113-7.sslip.io}
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account; losing them on every deploy would hit Let's Encrypt rate limits.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api, web]
+    logging: *logging
+    deploy:
+      resources:
+        limits: { memory: 128M }
+
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    logging: *logging
+    deploy:
+      resources:
+        limits: { memory: 512M }
+
+  redis:
+    ports: !reset []
+    restart: unless-stopped
+    # AOF on a named volume, so queued ingestion jobs survive a container recreate.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+    logging: *logging
+    deploy:
+      resources:
+        limits: { memory: 256M }
+
+  api:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      # Browsers call the API on the same origin via Caddy; CORS must name exactly that origin.
+      CORS_ORIGIN: https://${DOMAIN:?set DOMAIN in .env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?set AI_SERVICE_TOKEN in .env}
+    logging: *logging
+    deploy:
+      resources:
+        limits: { memory: 512M }
+
+  worker:
+    restart: unless-stopped
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?set AI_SERVICE_TOKEN in .env}
+    logging: *logging
+    deploy:
+      resources:
+        limits: { memory: 512M }
+
+  ai:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?set AI_SERVICE_TOKEN in .env}
+    logging: *logging
+    deploy:
+      resources:
+        limits: { memory: 512M }
+
+  web:
+    ports: !reset []
+    restart: unless-stopped
+    build:
+      args:
+        # Baked into the client bundle at build time, so changing DOMAIN needs `up -d --build`.
+        NEXT_PUBLIC_API_URL: https://${DOMAIN:?set DOMAIN in .env}
+    logging: *logging
+    deploy:
+      resources:
+        limits: { memory: 384M }
+
+  # Optional local LLM (profile local-llm): keep it off the public interface too.
+  ollama:
+    ports: !reset []
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:
+  redisdata:

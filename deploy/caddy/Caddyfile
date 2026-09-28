@@ -1,0 +1,47 @@
+# Single public entrypoint. {$DOMAIN} comes from the container environment (docker-compose.prod.yml).
+# Caddy gets and renews the Let's Encrypt certificate itself and redirects HTTP to HTTPS.
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# JSON to stdout; Docker rotates it. Authorization and Cookie headers are redacted by default.
+	log {
+		output stdout
+		format json
+	}
+
+	header {
+		# Applied as the response is written, so these also replace what the upstream apps set.
+		defer
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		# Next.js injects inline bootstrap scripts, hence 'unsafe-inline' for scripts until the app
+		# adopts nonces. The API is same-origin behind this proxy, so connect-src stays 'self'.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+		-X-Powered-By
+	}
+
+	# Prometheus metrics are for an internal scraper only. Matched exactly: /api/v1/metrics is
+	# the public KPI API and must keep working.
+	@metrics path /metrics /metrics/*
+	handle @metrics {
+		respond 404
+	}
+
+	@api path /api/* /health /ready
+	handle @api {
+		# Uploads are capped at 10 MB by the API; refuse anything larger before it is buffered.
+		request_body {
+			max_size 12MB
+		}
+		reverse_proxy api:4000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
