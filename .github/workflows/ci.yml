@@ -281,3 +281,48 @@ jobs:
             services/ai/eval/results.md
             services/ai/eval/results.json
           if-no-files-found: ignore
+
+  browser:
+    needs: [api, web, ai]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Each spec registers its own tenant from one runner IP; lift the per-IP login/register limit.
+      AUTH_RATE_LIMIT: "0"
+      WEB_URL: http://localhost:3000
+      API_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker compose up -d --build --wait postgres redis api ai worker web
+      # The web image has no healthcheck, so --wait only means "started"; wait until Next.js answers.
+      - name: Wait for the web app
+        run: curl -fsS --retry 30 --retry-delay 2 --retry-all-errors -o /dev/null "$WEB_URL/login"
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests
+        working-directory: e2e
+        run: npx playwright test
+      - name: README screenshots
+        working-directory: e2e
+        env: { SCREENSHOTS: "1" }
+        run: npx playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 14
+      - if: failure()
+        run: docker compose logs --no-color api worker ai web
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: docs/screenshots/*.png
+          if-no-files-found: ignore

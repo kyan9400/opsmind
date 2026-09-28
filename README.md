@@ -5,7 +5,7 @@
 **An AI-powered operations and knowledge platform for small businesses.**
 Teams upload their documents and connect operational data, then get cited AI answers, live KPI dashboards with anomaly hints, and multi-tenant, role-based administration — all shipped with CI/CD, containers and observability.
 
-> Status: **Week 4 of 5 — Operations** (metrics, tracing, Kubernetes, load tests, infrastructure as code) on top of analytics, RAG and the multi-tenant foundation. See the [roadmap](#roadmap).
+> All five milestones are done: multi-tenant foundation, RAG, KPI analytics, operations, and polish (three languages, browser tests, measured retrieval quality, demo workspace). See the [roadmap](#roadmap).
 
 ## Architecture
 
@@ -72,6 +72,14 @@ EMBED_PROVIDER=ollama LLM_PROVIDER=ollama docker compose up -d ai worker
 ```
 
 > Changing `EMBED_PROVIDER` changes the vector space, so reindex existing documents afterwards (`POST /api/v1/documents/:id/reindex`).
+
+### Retrieval quality
+
+Hybrid search is measured, not assumed. [`services/ai/eval`](services/ai/eval/README.md) contains 12 company policies (English, Russian, Arabic) and 56 labelled questions: exact codes and IDs, natural questions, paraphrases, and cross-language questions. Every CI run (`rag-eval` job) indexes them through the real `/v1/ingest` path and asks each question with vector-only, full-text-only and hybrid (RRF) retrieval. It reports Recall@1/3/5 and MRR by question kind and language, and fails if hybrid Recall@5 drops below 0.8.
+
+The evaluation already paid for itself. It showed that `websearch_to_tsquery` ANDs every word, so the full-text leg matched almost no natural-language question. Full-text now ORs the question's content words (EN/RU/AR stop words dropped) and lets `ts_rank_cd` rank the chunks.
+
+> The latest numbers are in the CI job summary and the `rag-eval-results` artifact, measured with the offline `hash` embedder. That embedder is lexical, so paraphrase and cross-language questions are its known weak spot. A real embedding model (`EMBED_PROVIDER=openai` or `ollama`) is expected to help there; it has not been measured on this dataset.
 
 ## KPI analytics
 
@@ -222,6 +230,18 @@ npm run dev:web     # :3000
 | PATCH | `/api/v1/metrics/:id` | admin+ | Name, unit, total/average, good direction |
 | DELETE | `/api/v1/metrics/:id` | admin+ | Delete a metric and its data |
 
+## Try the demo
+
+A read-only demo workspace ("Northwind Supply") has 180 days of KPIs with real incidents to find, and four company policies to ask questions about:
+
+```bash
+docker compose exec -e DEMO_EMAIL=demo@opsmind.dev -e DEMO_PASSWORD='choose-one' api node dist/seedDemo.js
+```
+
+Visitors log in as **viewers**. They can explore dashboards, ask the AI and download reports, but cannot upload, import or change anything; CI checks this. Build the web image with `NEXT_PUBLIC_DEMO_EMAIL` / `NEXT_PUBLIC_DEMO_PASSWORD` to show a one-click **Try the live demo** button. Login and registration are rate-limited per IP.
+
+The UI is available in **English, Russian and Arabic**. Arabic uses a full right-to-left layout, and the language is rendered server-side, so the first paint is already correct.
+
 ## Testing
 
 ```bash
@@ -229,11 +249,24 @@ npm test -w apps/api                       # unit + HTTP tests
 INTEGRATION=1 npm test -w apps/api         # + Postgres integration tests
 cd services/ai && pytest -q                # AI service (INTEGRATION=1 for pgvector tests)
 bash scripts/smoke.sh                      # end-to-end against a running stack
+npm ci && npx playwright install chromium   # once: browser for the e2e suite
+AUTH_RATE_LIMIT=0 docker compose up -d --build
+npm test -w e2e                            # Playwright browser tests against http://localhost:3000
+SCREENSHOTS=1 npm test -w e2e              # regenerate the README screenshots
 ```
 
 CI runs every suite against real Postgres + Redis service containers. It then starts the whole stack with `docker compose` and runs the **end-to-end smoke test**:
 - register → upload → the worker indexes it → ask → assert a cited answer
 - load demo KPIs → dashboard → assert every injected incident is detected → download both reports and check their file signatures
+
+**Browser tests** ([`e2e/`](e2e)) drive the real UI with Playwright against the full `docker compose` stack. Each spec creates its own workspace and selects elements by `data-testid`, so copy changes and translations don't break them:
+- **auth**: register → dashboard → sign out → sign in; a wrong password shows an error
+- **documents + ask**: upload a policy → wait for indexing → cited answer
+- **analytics**: demo KPIs, anomalies, 90-day weekly view, table view, Excel download
+- **rbac**: a viewer sees no upload, import or demo controls, and the API refuses them too
+- **i18n**: Russian and Arabic (RTL) switch `<html lang/dir>` and survive a reload
+
+CI runs ten jobs on every change: unit, integration, compose e2e, browser, retrieval evaluation, load test, Kubernetes (kind), infrastructure validation and observability config checks.
 
 ## Roadmap
 
@@ -241,7 +274,7 @@ CI runs every suite against real Postgres + Redis service containers. It then st
 - [x] **Week 2 — RAG:** document upload, ingestion queue, embeddings in pgvector, hybrid search (vector + full-text, RRF), cited answers, local LLM option
 - [x] **Week 3 — Analytics:** KPI dashboard, CSV import, seasonal anomaly detection with AI summaries, Excel/PDF reports
 - [x] **Week 4 — Ops:** Prometheus metrics, Grafana dashboards and alerts, OpenTelemetry tracing across services and the queue, Helm chart tested on kind, Terraform (Yandex Cloud) + Caddy HTTPS + CD, k6 load tests
-- [ ] **Week 5 — Polish:** EN/RU/AR (RTL), Playwright e2e, RAG eval metrics, demo video
+- [x] **Week 5 — Polish:** EN/RU/AR with RTL, Playwright browser tests, retrieval evaluation (Recall@k / MRR in CI), read-only demo workspace, login rate limiting
 
 ## Author
 
