@@ -234,3 +234,50 @@ jobs:
         run: kind load docker-image opsmind-api:ci opsmind-ai:ci opsmind-web:ci --name opsmind
       - name: Deploy and run end-to-end tests
         run: bash scripts/kind-e2e.sh
+
+  rag-eval:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: opsmind
+          POSTGRES_PASSWORD: opsmind
+          POSTGRES_DB: opsmind_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U opsmind" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://opsmind:opsmind@localhost:5432/opsmind_test
+    steps:
+      - uses: actions/checkout@v5
+      # The schema is owned by the API's migrations; apply them first.
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci && npm run migrate -w apps/api
+        env: { JWT_SECRET: ci-secret-at-least-16-chars }
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/ai/requirements.txt
+      - run: pip install -r services/ai/requirements.txt
+      # Fails the job if hybrid Recall@5 drops below the threshold (calibrated for the hash embedder).
+      - name: Evaluate retrieval (vector vs full text vs hybrid)
+        working-directory: services/ai
+        run: python -m eval.run_eval --out eval/results.md --min-recall 0.8
+      - if: always()
+        run: |
+          if [ -f services/ai/eval/results.md ]; then
+            cat services/ai/eval/results.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No retrieval report produced (setup likely failed)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-eval-results
+          path: |
+            services/ai/eval/results.md
+            services/ai/eval/results.json
+          if-no-files-found: ignore
