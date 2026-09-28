@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, atLeast, type DocumentItem, type DocumentStatus, type Me } from "@/lib/api";
+import { formatNumber } from "@/lib/format";
+import type { Locale } from "@/lib/i18n/config";
+import { useI18n } from "@/lib/i18n/provider";
+import type { Translator } from "@/lib/i18n/types";
 
 const STATUS_STYLE: Record<DocumentStatus, string> = {
   queued: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
@@ -11,14 +15,21 @@ const STATUS_STYLE: Record<DocumentStatus, string> = {
   failed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
 };
 
-const formatSize = (b: number) => (b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`);
+function formatSize(b: number, t: Translator, locale: Locale): string {
+  const oneDecimal = (v: number) => formatNumber(v, locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  if (b < 1024) return t("size.b", { n: formatNumber(b, locale) });
+  if (b < 1048576) return t("size.kb", { n: oneDecimal(b / 1024) });
+  return t("size.mb", { n: oneDecimal(b / 1048576) });
+}
 
 export default function DocumentsPage() {
+  const { t, locale } = useI18n();
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -54,6 +65,7 @@ export default function DocumentsPage() {
     try {
       await api("/documents", { method: "POST", body });
       if (fileRef.current) fileRef.current.value = "";
+      setFileName(null);
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -63,7 +75,7 @@ export default function DocumentsPage() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this document and its index?")) return;
+    if (!confirm(t("docs.confirmDelete"))) return;
     await api(`/documents/${id}`, { method: "DELETE" }).catch((err) => setError(err.message));
     load();
   }
@@ -78,62 +90,97 @@ export default function DocumentsPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      <h1 className="text-2xl font-semibold">Documents</h1>
-      <p className="mt-1 text-sm text-zinc-500">Upload PDFs, text or Markdown. They are chunked, embedded and indexed for AI search.</p>
+      <h1 className="text-2xl font-semibold">{t("docs.title")}</h1>
+      <p className="mt-1 text-sm text-zinc-500">{t("docs.subtitle")}</p>
 
       {canUpload && (
-        <form onSubmit={upload} className="mt-6 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-zinc-300 p-4 dark:border-zinc-700">
-          <input ref={fileRef} type="file" accept=".pdf,.txt,.md,.markdown" required className="text-sm" />
-          <button disabled={uploading} className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-60">
-            {uploading ? "Uploading…" : "Upload"}
+        <form
+          onSubmit={upload}
+          data-testid="doc-upload-form"
+          className="mt-6 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-zinc-300 p-4 dark:border-zinc-700"
+        >
+          {/* The native picker text ("Choose file / No file chosen") follows the browser language rather
+              than the app's, so the input is visually hidden (still focusable and validated) behind a label. */}
+          <label className="cursor-pointer rounded-lg border border-zinc-300 px-3 py-1.5 text-sm focus-within:ring-2 focus-within:ring-indigo-500 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
+            {t("docs.chooseFile")}
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf,.txt,.md,.markdown"
+              required
+              data-testid="doc-upload-input"
+              onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}
+              className="sr-only"
+            />
+          </label>
+          <span className="max-w-xs truncate text-sm text-zinc-500" data-testid="doc-upload-filename">
+            {fileName ?? t("docs.noFile")}
+          </span>
+          <button
+            disabled={uploading}
+            data-testid="doc-upload-submit"
+            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-60"
+          >
+            {uploading ? t("docs.uploading") : t("docs.upload")}
           </button>
-          <span className="text-xs text-zinc-500">Max 10 MB</span>
+          <span className="text-xs text-zinc-500">{t("docs.maxSize")}</span>
         </form>
       )}
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
       <div className="mt-6 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-start text-sm" data-testid="doc-table">
           <thead className="bg-zinc-100 text-xs uppercase text-zinc-500 dark:bg-zinc-900">
             <tr>
-              <th className="px-4 py-2">Title</th>
-              <th className="px-4 py-2">Size</th>
-              <th className="px-4 py-2">Chunks</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2" />
+              <th className="px-4 py-2 text-start">{t("docs.colTitle")}</th>
+              <th className="px-4 py-2 text-start">{t("docs.colSize")}</th>
+              <th className="px-4 py-2 text-start">{t("docs.colChunks")}</th>
+              <th className="px-4 py-2 text-start">{t("docs.colStatus")}</th>
+              <th className="px-4 py-2">
+                <span className="sr-only">{t("docs.colActions")}</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
             {docs.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
-                  No documents yet.
+                <td colSpan={5} className="px-4 py-8 text-center text-zinc-500" data-testid="doc-empty">
+                  {t("docs.empty")}
                 </td>
               </tr>
             )}
             {docs.map((d) => (
-              <tr key={d.id}>
+              <tr key={d.id} data-testid="doc-row" data-doc-id={d.id}>
                 <td className="px-4 py-2">
                   <div className="font-medium">{d.title}</div>
                   <div className="text-xs text-zinc-500">{d.filename}</div>
                 </td>
-                <td className="px-4 py-2 text-zinc-500">{formatSize(d.sizeBytes)}</td>
-                <td className="px-4 py-2 text-zinc-500">{d.chunkCount || "—"}</td>
+                <td className="px-4 py-2 text-zinc-500">{formatSize(d.sizeBytes, t, locale)}</td>
+                <td className="px-4 py-2 text-zinc-500">{d.chunkCount ? formatNumber(d.chunkCount, locale) : "—"}</td>
                 <td className="px-4 py-2">
-                  <span className={`rounded px-2 py-0.5 text-xs ${STATUS_STYLE[d.status]}`} title={d.error ?? undefined}>
-                    {d.status}
+                  <span
+                    className={`rounded px-2 py-0.5 text-xs ${STATUS_STYLE[d.status]}`}
+                    title={d.error ?? undefined}
+                    data-testid="doc-status"
+                    data-status={d.status}
+                  >
+                    {t(`docs.status.${d.status}`)}
                   </span>
                   {d.error && <div className="mt-1 max-w-xs truncate text-xs text-red-600">{d.error}</div>}
                 </td>
-                <td className="space-x-3 px-4 py-2 text-right">
+                <td className="space-x-3 px-4 py-2 text-end">
                   {isAdmin && (
                     <>
-                      <button onClick={() => reindex(d.id)} className="text-xs text-zinc-600 hover:underline dark:text-zinc-400">
-                        Reindex
+                      <button
+                        onClick={() => reindex(d.id)}
+                        data-testid="doc-reindex"
+                        className="text-xs text-zinc-600 hover:underline dark:text-zinc-400"
+                      >
+                        {t("docs.reindex")}
                       </button>
-                      <button onClick={() => remove(d.id)} className="text-xs text-red-600 hover:underline">
-                        Delete
+                      <button onClick={() => remove(d.id)} data-testid="doc-delete" className="text-xs text-red-600 hover:underline">
+                        {t("docs.delete")}
                       </button>
                     </>
                   )}
