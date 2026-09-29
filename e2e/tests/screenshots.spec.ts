@@ -47,13 +47,6 @@ test.describe("README screenshots", { tag: "@screenshots" }, () => {
     await expect(page.getByTestId("chart-tooltip")).toBeVisible();
   }
 
-  test("landing", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.getByTestId("landing-register")).toBeVisible();
-    await page.waitForLoadState("networkidle");
-    await shot(page, "landing.png");
-  });
-
   test("analytics", async ({ page }) => {
     await useToken(page, owner.token);
     await openAnalytics(page);

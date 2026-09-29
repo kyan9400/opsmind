@@ -7,6 +7,7 @@ from app.anomaly import detect
 from app.config import settings
 from app.insights import KpiDelta, NamedAnomaly, fmt_value, template_summary
 from app.main import app
+from scripts.detector_benchmark import demo_views
 
 END = date(2026, 9, 26)
 START = END - timedelta(days=29)
@@ -149,6 +150,17 @@ def test_first_event_on_an_all_zero_baseline_is_capped_not_infinite():
     zeros = [(END - timedelta(days=i), 0.0) for i in range(60)]
     [a] = detect([(d, 3.0 if d == END else v) for d, v in zeros], START, END)
     assert a.z == 99.0 and a.deviation_pct is None and a.severity == "high"
+
+
+def test_demo_data_incidents_are_found_whatever_day_it_is_loaded():
+    # The demo ends on the day it is loaded, so every weekday shifts where its weekends fall.
+    # Full measurements: python -m scripts.detector_benchmark
+    views = demo_views(END - timedelta(days=k) for k in range(7))
+    assert {(v.days, v.injected) for v in views} == {(30, 5), (90, 6), (180, 6)}
+    assert all(v.found == v.injected for v in views)
+    assert not any(v.extra for v in views if v.days == 30)
+    # Longer views may add a medium alert on some weekdays, never one in the bad direction.
+    assert not any(a.bad or a.severity == "high" for v in views for _, a in v.extra)
 
 
 def test_fmt_value_rounds_half_away_from_zero_like_intl():
