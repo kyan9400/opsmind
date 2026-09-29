@@ -102,7 +102,7 @@ def test_modes_against_postgres():
 def test_fts_query_is_an_or_of_content_words():
     from app.retrieval import fts_query
 
-    assert fts_query("How many days do I have to return an item?") == "many | days | return | item"
+    assert fts_query("How many days do I have to return an item?") == "days | return | item"
     assert fts_query("What does POL-FIN-03 say?") == "pol | fin | 03 | say"
     assert fts_query("Сколько дней на возврат товара?") == "дней | возврат | товара"
     assert fts_query("the the THE") == ""  # only stop words -> empty query, matches nothing

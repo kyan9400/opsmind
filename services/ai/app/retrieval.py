@@ -30,9 +30,9 @@ FTS_CTE = """fts AS (
 # Function words carry no topic. The 'simple' config keeps them (it has no language-specific
 # stemming, so EN/RU/AR tokenize alike), so they are dropped here before building the query.
 STOPWORDS = frozenset(
-    """a an and are as at be by can do does for from has have how i if in is it its me my of on or
+    """a an and are as at be by can do does for from has have how i if in is it its many me much my of on or
     our should the their there this to was we what when where which who why will with you your
-    и в во на не что как а по к у о об из за для до от же ли или это мы вы я мне мой наш
+    и в во на не что как а по к у о об из за для до от же ли или это мы вы я мне мой наш много
     какой какая какие какое когда где кто почему сколько можно нужно ли есть был была были
     في من على إلى عن ما ماذا كيف هل هو هي أن إن كان التي الذي مع أو لا هذا هذه عند متى أين""".split()
 )
