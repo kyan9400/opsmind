@@ -1,5 +1,7 @@
 # Deploying OpsMind
 
+> **Optional.** OpsMind is not hosted permanently; to try it, use the one-click [Codespaces demo](../.devcontainer/README.md). Everything below is ready for anyone who wants their own server. Until the deploy secrets are set, the deploy workflow skips itself with a notice.
+
 One small VM runs the whole stack with Docker Compose. Caddy is the only public entrypoint and gets a free HTTPS certificate automatically.
 
 ```
@@ -9,7 +11,7 @@ internet ──443/80──► Caddy ──/api/*, /health, /ready──► api:
 
 - `terraform/yandex/` creates the VM on **Yandex Cloud** (network, firewall, static IP, VM, first-boot setup).
 - `../docker-compose.prod.yml` + `../deploy/caddy/Caddyfile` work on **any Ubuntu 22.04 / 24.04 server**, with or without Terraform.
-- `../.github/workflows/deploy.yml` redeploys automatically after CI passes on `main`.
+- `../.github/workflows/deploy.yml` redeploys automatically after CI passes on `main`, once the secrets from step 7 are set.
 
 Without a domain, the app is served at `https://<ip-with-dashes>.sslip.io` (for example `https://203-0-113-7.sslip.io`). [sslip.io](https://sslip.io) is a public DNS service that maps that name to the IP, so HTTPS works with zero DNS setup.
 
@@ -164,6 +166,8 @@ ssh deploy@<ip> 'cd /opt/opsmind && docker compose exec -T postgres pg_dump -U o
 - **State is local.** For a team, switch to the Object Storage backend commented out in `versions.tf`.
 - **Changing variables later** does not reconfigure a running VM: cloud-init only runs once, and Terraform deliberately ignores user-data and newer Ubuntu images so it never recreates the VM by surprise. Edit `/opt/opsmind/.env` on the VM instead, or rebuild on purpose with `terraform apply -replace=yandex_compute_instance.app` (this wipes the database).
 - **Backups are not set up.** For anything beyond a demo, schedule `pg_dump` to Object Storage or move Postgres to Managed PostgreSQL.
+- **Rate limits see real client IPs.** `docker-compose.prod.yml` sets `TRUST_PROXY=1` for Caddy, so login/register attempts are limited per IP (20 per 15 minutes) and questions, insights and report exports per user and IP (20 per minute, with a ceiling of 10× that per account). Change them with `AUTH_RATE_LIMIT` / `AI_RATE_LIMIT` in `.env` (0 disables) and run `docker compose up -d`.
+- **A public demo login** is one command on the VM: `cd /opt/opsmind && docker compose exec -e DEMO_EMAIL=demo@example.com -e DEMO_PASSWORD='choose-one' api node dist/seedDemo.js`. It creates a read-only viewer in a sample workspace; see "Demo workspace" in the [main README](../README.md#demo-workspace).
 
 ---
 

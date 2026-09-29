@@ -24,7 +24,13 @@ On top of the latency budgets, `http_req_failed` must stay below 1% across the w
 
 ## Running
 
-The stack must be running (`docker compose up -d --build --wait postgres redis api ai worker`). Run commands from the repo root, because results are written to `load/results/`.
+Start the stack with the AI rate limit off, and run commands from the repo root, because results are written to `load/results/`:
+
+```bash
+AI_RATE_LIMIT=0 docker compose up -d --build --wait postgres redis api ai worker
+```
+
+The k6 scripts send every request with one token from one IP, so the per-user, per-IP AI limit (20 requests per minute by default, shared by ask, insights and report exports) would turn most insights and ask calls into 429s and fail the `http_req_failed` threshold. Each run registers only one tenant, well inside the login/register limit.
 
 **With a local k6 binary:**
 
@@ -37,11 +43,11 @@ k6 run -e API=http://localhost:4000 -e DURATION_SCALE=0.3 load/k6/load.js # ~1 m
 **With the `grafana/k6` image (no install):**
 
 ```bash
-docker run --rm -i --network host -v "$PWD:/work" -w /work grafana/k6 \
+docker run --rm -i --network host -u "$(id -u):$(id -g)" -v "$PWD:/work" -w /work grafana/k6 \
   run -e API=http://localhost:4000 load/k6/load.js
 ```
 
-On Docker Desktop (macOS/Windows), `--network host` does not reach the host, so use `-e API=http://host.docker.internal:4000` instead.
+`-u` runs k6 as your user, because the image's own user (uid 12345) cannot write the summary into a Linux bind mount you own. On Docker Desktop (macOS/Windows), `--network host` does not reach the host, so use `-e API=http://host.docker.internal:4000` instead.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -49,7 +55,7 @@ On Docker Desktop (macOS/Windows), `--network host` does not reach the host, so 
 | `DURATION_SCALE` | `1` | Multiplies every stage duration; the ramp shape stays the same |
 | `RESULTS_DIR` | `load/results` | Where `summary.json` and `summary.md` are written (the directory must exist) |
 
-**In CI:** the `load` job in `.github/workflows/ci.yml` starts the stack with Docker Compose, runs `load.js` with `DURATION_SCALE=0.3`, adds the results table to the job summary and uploads `load/results/` as an artifact. The job fails only when a threshold fails (k6 exits with code 99).
+**In CI:** the `load` job in `.github/workflows/ci.yml` starts the stack with Docker Compose (`AI_RATE_LIMIT=0`), runs `load.js` with `DURATION_SCALE=0.3`, adds the results table to the job summary and uploads `load/results/` as an artifact. The job fails only when a threshold fails (k6 exits with code 99).
 
 ## Reading results
 
@@ -66,5 +72,5 @@ Under the table, every threshold is listed as PASS or FAIL. A few things to keep
 
 - **Shared CI runners are noisy.** Treat a single failing run near the budget as a signal to rerun, and a steady trend as a real regression. Compare against earlier runs using the uploaded artifacts.
 - **`ask` is bounded by the AI service.** With the default `hash` embeddings and `extractive` answers it measures retrieval, not an LLM. Real providers need their own budget.
-- **A high error rate with low latency** usually means requests were rejected fast (for example, 5xx from an overloaded dependency), not that the API is quick. Check `docker compose logs api ai worker`.
+- **A high error rate with low latency** usually means requests were rejected fast, not that the API is quick. If the errors are on `insights` and `ask` only, they are almost certainly 429s from the AI rate limit: restart the API with `AI_RATE_LIMIT=0`. Otherwise look for 5xx from an overloaded dependency with `docker compose logs api ai worker`.
 - If setup fails with `not indexed within 90s`, the worker is not consuming the queue, so check the worker before looking at API performance.

@@ -1,0 +1,6 @@
+# Store text with LF everywhere, so shell scripts and container files work in a checkout from any OS
+# (a CRLF start.sh breaks the dev container when the repo is cloned on Windows).
+* text=auto eol=lf
+*.png binary
+*.gif binary
+*.jpg binary
