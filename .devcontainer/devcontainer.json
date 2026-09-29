@@ -2,7 +2,8 @@
 // Docker-in-Docker and opens the web app. See .devcontainer/README.md.
 {
   "name": "OpsMind demo",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  // Pinned: the floating "ubuntu" tag moved to a release the docker-in-docker feature cannot install on.
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
     // The app runs from its own images, so the container only needs Docker, not Node or Python.
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
