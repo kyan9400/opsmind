@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { formatDay, formatDeltaPct, formatValue, niceTicks, tickFormatter } from "@/lib/format";
+import { useI18n } from "@/lib/i18n/provider";
 
 export interface ChartPoint {
   x: string; // ISO day (bucket start)
@@ -36,6 +37,7 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
   const [width, setWidth] = useState(0);
   const [active, setActive] = useState<number | null>(null);
   const gradientId = useId();
+  const { t, locale, dir } = useI18n();
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -64,8 +66,8 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
     const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join("");
     const area = `${line}L${x(points.length - 1).toFixed(1)},${M.top + h}L${x(0).toFixed(1)},${M.top + h}Z`;
     const labelEvery = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(w / 80))));
-    return { ticks, fmtTick: tickFormatter(ticks, unit), x, y, line, area, w, h, labelEvery };
-  }, [points, width, height, unit]);
+    return { ticks, fmtTick: tickFormatter(ticks, unit, locale), x, y, line, area, w, h, labelEvery };
+  }, [points, width, height, unit, locale]);
 
   function onPointer(e: React.PointerEvent<SVGRectElement>) {
     if (!geo) return;
@@ -89,13 +91,15 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
   const marker = p ? markerByX.get(p.x) : undefined;
 
   return (
-    <div ref={wrapRef} className="relative w-full min-w-0" style={{ height }}>
+    // Time runs left to right in every language, so the chart (geometry, keyboard, tick anchors) stays
+    // LTR on Arabic pages too; only the tooltip text follows the page direction.
+    <div ref={wrapRef} dir="ltr" className="relative w-full min-w-0" style={{ height }} data-testid="line-chart">
       {geo && (
         <svg
           width={width}
           height={height}
           role="img"
-          aria-label={`${label}. Use left and right arrow keys to read values.`}
+          aria-label={t("chart.a11y", { label })}
           tabIndex={0}
           onKeyDown={onKey}
           onFocus={() => setActive((a) => a ?? points.length - 1)}
@@ -146,7 +150,7 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
                 fontSize={11}
                 fill="var(--viz-muted)"
               >
-                {formatDay(pt.x, bucket)}
+                {formatDay(pt.x, bucket, locale)}
               </text>
             ) : null,
           )}
@@ -223,7 +227,9 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
       {geo && p && idx !== null && (
         <div
           role="status"
-          className="pointer-events-none absolute z-10 min-w-36 rounded-lg border px-3 py-2 text-xs shadow-lg"
+          dir={dir}
+          data-testid="chart-tooltip"
+          className="pointer-events-none absolute z-10 min-w-36 rounded-lg border px-3 py-2 text-start text-xs shadow-lg"
           style={{
             top: 0,
             // Sit beside the crosshair, flipping sides past 60% so it never covers the hovered point.
@@ -233,19 +239,23 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
           }}
         >
           <div style={{ color: "var(--viz-ink-2)" }}>
-            {bucket === "day" ? formatDay(p.x) : `${bucket === "week" ? "Week of " : ""}${formatDay(p.x, bucket)}`}
-            {p.partial && " (partial)"}
+            {bucket === "week"
+              ? t("chart.weekOf", { date: formatDay(p.x, bucket, locale) })
+              : formatDay(p.x, bucket, locale)}
+            {p.partial && ` ${t("common.partial")}`}
           </div>
           <div className="flex items-center gap-2">
             <span aria-hidden className="inline-block h-0.5 w-3 rounded" style={{ background: "var(--viz-series-1)" }} />
             <span className="text-sm font-semibold" style={{ color: "var(--viz-ink)" }}>
-              {formatValue(p.value, unit)}
+              {formatValue(p.value, unit, { locale })}
             </span>
           </div>
           {marker && (
             <div className="mt-1" style={{ color: marker.bad ? "var(--viz-critical-text)" : "var(--viz-good-text)" }}>
-              {marker.bad ? "⚠ Needs attention" : "✓ Unusual, positive"}: {formatDeltaPct(marker.deviationPct)} vs expected{" "}
-              {formatValue(marker.expected, unit)}
+              {t(marker.bad ? "chart.markerBad" : "chart.markerGood", {
+                delta: formatDeltaPct(marker.deviationPct, locale),
+                expected: formatValue(marker.expected, unit, { locale }),
+              })}
             </div>
           )}
         </div>

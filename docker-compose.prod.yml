@@ -58,6 +58,8 @@ services:
     environment:
       # Browsers call the API on the same origin via Caddy; CORS must name exactly that origin.
       CORS_ORIGIN: https://${DOMAIN:?set DOMAIN in .env}
+      # Exactly one proxy (Caddy) sits in front, so the login rate limit keys on the real client IP.
+      TRUST_PROXY: "1"
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?set AI_SERVICE_TOKEN in .env}
     logging: *logging

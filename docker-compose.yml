@@ -30,6 +30,7 @@ services:
       <<: *backend-env
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
       CORS_ORIGIN: http://localhost:3000
+      AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-20} # login/register attempts per IP per 15 min; 0 disables (browser tests)
       REDIS_URL: redis://redis:6379
       AI_SERVICE_URL: http://ai:8000
     ports: ["4000:4000"]

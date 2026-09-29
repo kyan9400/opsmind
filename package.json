@@ -1,7 +1,7 @@
 {
   "name": "opsmind",
   "private": true,
-  "workspaces": ["apps/api", "apps/web"],
+  "workspaces": ["apps/api", "apps/web", "e2e"],
   "scripts": {
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",

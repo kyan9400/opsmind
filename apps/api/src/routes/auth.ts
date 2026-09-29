@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { rateLimit } from "express-rate-limit";
+import { config } from "../config.js";
 import { query, withTx } from "../lib/db.js";
 import { hashPassword, signToken, verifyPassword } from "../lib/auth.js";
 import { audit } from "../lib/audit.js";
@@ -8,6 +10,17 @@ import { requireAuth } from "../middleware/auth.js";
 import { LoginBody, RegisterBody } from "../schemas.js";
 
 export const authRouter = Router();
+
+// Brute-force guard for the public demo: credential endpoints only, per client IP.
+const credentialLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: config.AUTH_RATE_LIMIT,
+  skip: () => config.AUTH_RATE_LIMIT === 0,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "too many attempts, try again in a few minutes" },
+});
+authRouter.use(["/login", "/register"], credentialLimiter);
 
 /** Creates a new tenant and its first user (the owner). */
 authRouter.post("/register", async (req, res) => {

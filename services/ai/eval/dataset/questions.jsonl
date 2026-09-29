@@ -1,0 +1,56 @@
+{"question": "EXP-204", "expected_doc": "expense_policy.md", "lang": "en", "kind": "exact"}
+{"question": "form HR-21", "expected_doc": "hr_leave_policy.md", "lang": "en", "kind": "exact"}
+{"question": "RB-7 failover", "expected_doc": "incident_runbook.md", "lang": "en", "kind": "exact"}
+{"question": "RB-12", "expected_doc": "incident_runbook.md", "lang": "en", "kind": "exact"}
+{"question": "PagerDuty", "expected_doc": "incident_runbook.md", "lang": "en", "kind": "exact"}
+{"question": "SHP-EXP", "expected_doc": "shipping_policy.md", "lang": "en", "kind": "exact"}
+{"question": "POL-FIN-03", "expected_doc": "refund_policy.md", "lang": "en", "kind": "exact"}
+{"question": "POL-FIN-05", "expected_doc": "expense_policy.md", "lang": "en", "kind": "exact"}
+{"question": "CB-1 template", "expected_doc": "refund_policy.md", "lang": "en", "kind": "exact"}
+{"question": "SK-1", "expected_doc": "pricing.md", "lang": "en", "kind": "exact"}
+{"question": "DW-5 price", "expected_doc": "pricing.md", "lang": "en", "kind": "exact"}
+{"question": "SEC-04", "expected_doc": "security_policy.md", "lang": "en", "kind": "exact"}
+{"question": "ONB-1 ticket", "expected_doc": "onboarding.md", "lang": "en", "kind": "exact"}
+{"question": "152-FZ", "expected_doc": "onboarding.md", "lang": "en", "kind": "exact"}
+{"question": "support@volgahome.example", "expected_doc": "customer_support_ar.md", "lang": "en", "kind": "exact"}
+{"question": "форма УД-5", "expected_doc": "remote_work_ru.md", "lang": "ru", "kind": "exact"}
+{"question": "акт Н-1", "expected_doc": "warehouse_safety_ru.md", "lang": "ru", "kind": "exact"}
+{"question": "ОТ-7", "expected_doc": "warehouse_safety_ru.md", "lang": "ru", "kind": "exact"}
+{"question": "CS-02 التصعيد", "expected_doc": "customer_support_ar.md", "lang": "ar", "kind": "exact"}
+{"question": "How many days of paid annual leave does an employee get?", "expected_doc": "hr_leave_policy.md", "lang": "en", "kind": "natural"}
+{"question": "What is the daily allowance for business trips abroad?", "expected_doc": "expense_policy.md", "lang": "en", "kind": "natural"}
+{"question": "Who approves an expense over 100,000 RUB?", "expected_doc": "expense_policy.md", "lang": "en", "kind": "natural"}
+{"question": "How often do we post updates on the status page during a SEV-1?", "expected_doc": "incident_runbook.md", "lang": "en", "kind": "natural"}
+{"question": "Is express delivery available to parcel lockers?", "expected_doc": "shipping_policy.md", "lang": "en", "kind": "natural"}
+{"question": "How long does a card refund take?", "expected_doc": "refund_policy.md", "lang": "en", "kind": "natural"}
+{"question": "What is the monthly availability commitment for the Pro plan?", "expected_doc": "sla.md", "lang": "en", "kind": "natural"}
+{"question": "When does planned maintenance happen?", "expected_doc": "sla.md", "lang": "en", "kind": "natural"}
+{"question": "How quickly must I report a lost laptop?", "expected_doc": "security_policy.md", "lang": "en", "kind": "natural"}
+{"question": "How long is probation for new employees?", "expected_doc": "onboarding.md", "lang": "en", "kind": "natural"}
+{"question": "How much does the Plus plan cost per month?", "expected_doc": "pricing.md", "lang": "en", "kind": "natural"}
+{"question": "Сколько дней в неделю можно работать удалённо?", "expected_doc": "remote_work_ru.md", "lang": "ru", "kind": "natural"}
+{"question": "Какая компенсация за домашний интернет?", "expected_doc": "remote_work_ru.md", "lang": "ru", "kind": "natural"}
+{"question": "Сколько кг женщины поднимают вручную?", "expected_doc": "warehouse_safety_ru.md", "lang": "ru", "kind": "natural"}
+{"question": "Где место для курения на складе?", "expected_doc": "warehouse_safety_ru.md", "lang": "ru", "kind": "natural"}
+{"question": "ما هي ساعات عمل فريق الدعم؟", "expected_doc": "customer_support_ar.md", "lang": "ar", "kind": "natural"}
+{"question": "كيف أقدم طلب ضمان؟", "expected_doc": "customer_support_ar.md", "lang": "ar", "kind": "natural"}
+{"question": "متى يتم تصعيد التذكرة إلى مشرف الفريق؟", "expected_doc": "customer_support_ar.md", "lang": "ar", "kind": "natural"}
+{"question": "Can I get my money back for a thermostat I never unpacked?", "expected_doc": "refund_policy.md", "lang": "en", "kind": "paraphrase"}
+{"question": "My package arrived crushed, what should I do?", "expected_doc": "shipping_policy.md", "lang": "en", "kind": "paraphrase"}
+{"question": "How much vacation can I roll into next year?", "expected_doc": "hr_leave_policy.md", "lang": "en", "kind": "paraphrase"}
+{"question": "Do I get paid while I am off with the flu?", "expected_doc": "hr_leave_policy.md", "lang": "en", "kind": "paraphrase"}
+{"question": "Can I take a cab home late at night on the company?", "expected_doc": "expense_policy.md", "lang": "en", "kind": "paraphrase"}
+{"question": "What do we do when the main DB goes down?", "expected_doc": "incident_runbook.md", "lang": "en", "kind": "paraphrase"}
+{"question": "Is it fine to share one login between two colleagues?", "expected_doc": "security_policy.md", "lang": "en", "kind": "paraphrase"}
+{"question": "Who shows me around during my first days?", "expected_doc": "onboarding.md", "lang": "en", "kind": "paraphrase"}
+{"question": "What do customers get back when the cloud is offline too long?", "expected_doc": "sla.md", "lang": "en", "kind": "paraphrase"}
+{"question": "Is there a bulk discount on hardware for companies?", "expected_doc": "pricing.md", "lang": "en", "kind": "paraphrase"}
+{"question": "Можно ли поработать месяц из Турции?", "expected_doc": "remote_work_ru.md", "lang": "ru", "kind": "paraphrase"}
+{"question": "Что надеть перед сменой на складе?", "expected_doc": "warehouse_safety_ru.md", "lang": "ru", "kind": "paraphrase"}
+{"question": "هل يمكنني التحدث مع موظف بالعربية يوم الجمعة؟", "expected_doc": "customer_support_ar.md", "lang": "ar", "kind": "paraphrase"}
+{"question": "How many days a year can I work from abroad?", "expected_doc": "remote_work_ru.md", "lang": "en", "kind": "crosslingual"}
+{"question": "Maximum weight a man may lift by hand in the warehouse", "expected_doc": "warehouse_safety_ru.md", "lang": "en", "kind": "crosslingual"}
+{"question": "Сколько дней ежегодного оплачиваемого отпуска положено сотруднику?", "expected_doc": "hr_leave_policy.md", "lang": "ru", "kind": "crosslingual"}
+{"question": "Какой месячный лимит у корпоративной карты?", "expected_doc": "expense_policy.md", "lang": "ru", "kind": "crosslingual"}
+{"question": "كم يستغرق استرداد المبلغ إلى البطاقة؟", "expected_doc": "refund_policy.md", "lang": "ar", "kind": "crosslingual"}
+{"question": "Which languages does customer support speak?", "expected_doc": "customer_support_ar.md", "lang": "en", "kind": "crosslingual"}
