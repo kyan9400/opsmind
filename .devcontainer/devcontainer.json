@@ -1,0 +1,34 @@
+// One-click demo: opening the repo in GitHub Codespaces builds and starts the whole stack with
+// Docker-in-Docker and opens the web app. See .devcontainer/README.md.
+{
+  "name": "OpsMind demo",
+  // Pinned: the floating "ubuntu" tag moved to a release the docker-in-docker feature cannot install on.
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    // The app runs from its own images, so the container only needs Docker, not Node or Python.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  // Sized for the smallest (2-core / 8 GB) machine on purpose: asking for more would only burn more of
+  // the visitor's Codespaces quota.
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
+  "forwardPorts": [3000, 4000],
+  "portsAttributes": {
+    "3000": { "label": "OpsMind web", "onAutoForward": "openBrowser" },
+    "4000": { "label": "OpsMind API", "onAutoForward": "silent" }
+  },
+  // Postgres, Redis and the AI service stay reachable without a popup for each of them.
+  "otherPortsAttributes": { "onAutoForward": "silent" },
+  // Build once when the codespace is created; start (and re-seed) on every start, so a codespace that
+  // was stopped for idling comes back up by itself.
+  "postCreateCommand": "bash .devcontainer/start.sh --build-only",
+  "postStartCommand": "bash .devcontainer/start.sh",
+  "customizations": {
+    "codespaces": {
+      "openFiles": [".devcontainer/README.md"]
+    }
+  }
+}

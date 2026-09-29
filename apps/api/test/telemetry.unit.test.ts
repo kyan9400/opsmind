@@ -1,13 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
-import { signToken } from "../src/lib/auth.js";
+import { bearer } from "./helpers/fakeDb.js";
+
+vi.mock("../src/lib/db.js", () => import("./helpers/fakeDb.js"));
 
 describe("metrics endpoint", () => {
   const app = createApp();
 
   it("exposes RED metrics labelled by route template, not raw URL", async () => {
-    const token = `Bearer ${signToken({ sub: "u1", tenantId: "t1", role: "viewer" })}`;
+    const token = bearer("viewer");
     await request(app).get("/health").expect(200);
     // An id in the path must collapse into the :id template (no per-id series).
     await request(app).get("/api/v1/documents/11111111-2222-3333-4444-555555555555").expect(401);

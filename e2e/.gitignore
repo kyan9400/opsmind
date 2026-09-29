@@ -1,3 +1,5 @@
 playwright-report/
 test-results/
 blob-report/
+# Raw DEMO_VIDEO=1 recording and the GIF made from it; the GIF that ships is committed under docs/.
+demo-video/

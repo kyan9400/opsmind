@@ -12,10 +12,17 @@ client = TestClient(app)
 
 def test_metrics_use_route_templates_and_service_label():
     client.get("/health")
-    client.post("/v1/chunk", json={"text": "hello world"})
+    client.post(
+        "/v1/insights",
+        json={"start": "2026-09-01", "end": "2026-09-30", "metrics": []},
+        headers={"x-internal-token": settings.internal_token},
+    )
+    client.get("/v1/documents/3f1c9b2e")  # no such route
     body = client.get("/metrics").text
     assert 'http_request_duration_seconds_count{method="GET",route="/health",service="ai",status_code="200"}' in body
-    assert 'route="/v1/chunk"' in body
+    assert 'http_request_duration_seconds_count{method="POST",route="/v1/insights",service="ai",status_code="200"}' in body
+    # Unknown paths share one label, so probing random URLs can't grow the series count.
+    assert 'route="unmatched"' in body and "3f1c9b2e" not in body
     assert 'route="/metrics"' not in body  # scrapes don't measure themselves
 
 

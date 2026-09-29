@@ -43,7 +43,7 @@ The documents deliberately share vocabulary (several `POL-FIN-*` codes, "30 days
 Each question is run in three modes of the production `hybrid_search` (`app/retrieval.py`):
 
 - `vector`: pgvector cosine ranking only
-- `fts`: Postgres full text only (`websearch_to_tsquery('simple', …)`, `ts_rank_cd`)
+- `fts`: Postgres full text only: `to_tsquery('simple', …)` built from an OR of the question's content words (EN/RU/AR stop words dropped, at most 16 terms), ranked by `ts_rank_cd`
 - `hybrid`: both, fused with RRF (k = 60), the production default
 
 Ranking is at document level: the top 10 chunks are fetched and a document ranks where its best chunk ranks.
@@ -58,13 +58,12 @@ Results are broken down by `kind` and by `lang`, and the report lists every ques
 It needs a Postgres with pgvector and the app schema (the API's migrations), because retrieval is SQL:
 
 ```bash
-# from the repo root: apply the schema
-DATABASE_URL=postgres://opsmind:opsmind@localhost:5432/opsmind JWT_SECRET=dev-secret-at-least-16 \
-  npm run migrate -w apps/api
+# from the repo root; the URL is the docker compose / .env.example default
+export DATABASE_URL=postgres://opsmind:opsmind_dev_password@localhost:5432/opsmind
+JWT_SECRET=dev-secret-at-least-16 npm run migrate -w apps/api   # apply the schema
 
 cd services/ai
-DATABASE_URL=postgres://opsmind:opsmind@localhost:5432/opsmind \
-  python -m eval.run_eval --out eval/results.md --min-recall 0.8
+python -m eval.run_eval --out eval/results.md --min-recall 0.8
 ```
 
 The script creates a throwaway tenant, uploads every document as a `documents` row and indexes it through `POST /v1/ingest` (the production extract → chunk → embed → insert path), embeds each question with the configured provider as `/v1/ask` does, and deletes the tenant at the end (documents and chunks cascade).
@@ -75,13 +74,24 @@ The dataset and metric helpers are unit-tested without a database in `tests/test
 
 ## Reading the numbers
 
-The default embedder is `hash`: deterministic feature hashing of words and word pairs, with no model. It is **lexical**, so on this setup "vector" search is really a bag-of-words retriever. Expect:
+The default embedder is `hash`: deterministic feature hashing of words and word pairs, with no model. It is **lexical**, so on this setup "vector" search is really a bag-of-words retriever.
 
-- **exact**: both retrievers usually find the document, but hash collisions and long chunks let other documents that share a token (`pol`, `fin`, `1`) outrank it. Full text matches the code exactly, so fusion puts the right document first more often. The gain shows in Recall@1 and MRR more than in Recall@5.
-- **natural**: full text finds almost nothing. `websearch_to_tsquery` ANDs every word of the question, and with the `simple` configuration there are no stop words, so a chunk must contain "how", "does", "a" and so on. The vector leg carries these questions, and hybrid keeps its results.
-- **paraphrase** and **crosslingual**: the hash embedder only scores shared words, so it misses questions that share none with the document, and every mode fails on them. This is the gap a real embedding model closes.
+Results from CI with `hash` (Recall@5 / MRR@10 by question kind):
 
-With `EMBED_PROVIDER=openai` (`text-embedding-3-small`) or `EMBED_PROVIDER=ollama` (`nomic-embed-text`), the vector leg becomes semantic and the paraphrase and cross-language rows should improve. Those providers have not been run against this dataset, so no numbers are claimed for them. To measure them, run the same command with the provider configured; the threshold was calibrated for `hash`.
+| Kind | n | vector | fts | hybrid |
+|---|---:|---:|---:|---:|
+| exact | 19 | 100.0% / 0.86 | 89.5% / 0.77 | 89.5% / 0.89 |
+| natural | 18 | 100.0% / 0.81 | 100.0% / 1.00 | 100.0% / 0.94 |
+| paraphrase | 13 | 76.9% / 0.47 | 76.9% / 0.54 | 84.6% / 0.65 |
+| crosslingual | 6 | 33.3% / 0.08 | 0.0% / 0.00 | 33.3% / 0.07 |
+| **all** | 56 | 87.5% / 0.668 | 80.4% / 0.710 | 85.7% / 0.763 |
+
+- **exact**: the vector leg finds every code in the top 5, but hash collisions and long chunks let other documents that share a token (`pol`, `fin`, `1`) outrank it. Full text matches the code exactly, so fusion puts the right document first more often (the best MRR, 0.89). Hybrid misses two lookups that vector alone finds, an email address and a short Cyrillic code (`ОТ-7`): documents that full text also returns overtake them in the fusion.
+- **natural**: solved by every mode. Full text ranks them best now that it ORs the question's content words; the earlier `websearch_to_tsquery` query ANDed every word, including "how", "does" and "a", and matched almost none of these questions.
+- **paraphrase**: partly solved. Most paraphrases still share a content word with the document, so each retriever alone finds 10 of 13 and fusion finds 11. The two misses reword the key terms ("cab" for *taxi*; "bulk discount on hardware" for *50 or more devices*), which a lexical retriever cannot bridge.
+- **crosslingual**: the weak spot. A question in one language shares almost no words with a document in another, so full text finds none and the hash vectors find 2 of 6. This is the gap a multilingual embedding model closes.
+
+With `EMBED_PROVIDER=openai` (`text-embedding-3-small`) or `EMBED_PROVIDER=ollama`, the vector leg becomes semantic, so paraphrases should improve. Cross-language questions also need a multilingual model: `text-embedding-3-small` is one, but Ollama's default `nomic-embed-text` is English-centric, so set `OLLAMA_EMBED_MODEL` to a multilingual model with 768-dimensional vectors (the schema's size). Those providers have not been run against this dataset, so no numbers are claimed for them. To measure them, run the same command with the provider configured; the threshold was calibrated for `hash`.
 
 ```bash
 EMBED_PROVIDER=openai OPENAI_API_KEY=... python -m eval.run_eval --out eval/results-openai.md

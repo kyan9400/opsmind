@@ -2,12 +2,15 @@ import { z } from "zod";
 import { ROLES } from "./lib/rbac.js";
 
 const email = z.string().trim().toLowerCase().email();
+// .invalid never resolves (RFC 2606), so no real person has such an address; the demo seed uses it for
+// its hidden owner account, and nobody should be able to create a look-alike.
+const newEmail = email.refine((e) => !e.endsWith(".invalid"), "this email domain is reserved");
 const password = z.string().min(8).max(128);
 
 export const RegisterBody = z.object({
   tenantName: z.string().trim().min(2).max(80),
   name: z.string().trim().min(1).max(80),
-  email,
+  email: newEmail,
   password,
 });
 
@@ -15,7 +18,7 @@ export const LoginBody = z.object({ email, password: z.string().min(1) });
 
 export const CreateUserBody = z.object({
   name: z.string().trim().min(1).max(80),
-  email,
+  email: newEmail,
   password,
   role: z.enum(ROLES).default("member"),
 });

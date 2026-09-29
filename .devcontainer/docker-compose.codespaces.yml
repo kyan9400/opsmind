@@ -1,0 +1,17 @@
+# Codespaces overlay for the root docker-compose.yml, used by .devcontainer/start.sh:
+#   docker compose -f docker-compose.yml -f .devcontainer/docker-compose.codespaces.yml up
+#
+# Codespaces serves every forwarded port on its own https origin behind GitHub sign-in, so a page on
+# port 3000 calling the API on port 4000 is cross-origin and trips over that sign-in. Here the browser
+# calls /api/v1 on the web app's own origin and the Next.js server proxies it to the API over the
+# compose network. Both settings are baked in at build time (see apps/web/Dockerfile).
+services:
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: "" # same origin
+        API_INTERNAL_URL: http://api:4000
+        # Public, read-only "viewer" account that start.sh seeds; it is meant to be shared, not a secret.
+        # start.sh exports the same variables, so the button and the seeded account always match.
+        NEXT_PUBLIC_DEMO_EMAIL: ${DEMO_EMAIL:-demo@opsmind.dev}
+        NEXT_PUBLIC_DEMO_PASSWORD: ${DEMO_PASSWORD:-opsmind-demo}

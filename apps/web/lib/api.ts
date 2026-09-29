@@ -1,4 +1,8 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+// An empty NEXT_PUBLIC_API_URL means "same origin": calls go to /api/v1 on the web app's own host and
+// the Next.js server proxies them to the API (API_INTERNAL_URL in next.config.mjs). `??`, not `||`,
+// so that "" is kept instead of falling back to the local-dev default.
+const BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/+$/, "");
+const apiUrl = (path: string) => `${BASE}/api/v1${path}`;
 const TOKEN_KEY = "opsmind.token";
 
 export const getToken = () => (typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY));
@@ -16,7 +20,7 @@ export class ApiError extends Error {
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
-  const res = await fetch(`${BASE}/api/v1${path}`, {
+  const res = await fetch(apiUrl(path), {
     ...init,
     headers: {
       // Let the browser set the multipart boundary for FormData uploads.
@@ -121,7 +125,7 @@ export interface ImportResult {
 /** Authenticated file download (exports need the bearer token, so a plain link won't do). */
 export async function download(path: string, fallbackName: string) {
   const token = getToken();
-  const res = await fetch(`${BASE}/api/v1${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  const res = await fetch(apiUrl(path), { headers: token ? { authorization: `Bearer ${token}` } : {} });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(res.status, body.error ?? res.statusText);

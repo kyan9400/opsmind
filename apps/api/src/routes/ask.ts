@@ -3,6 +3,7 @@ import { aiPost } from "../lib/aiClient.js";
 import { audit } from "../lib/audit.js";
 import { HttpError } from "../lib/errors.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { aiRateLimit } from "../middleware/rateLimit.js";
 import { AskBody } from "../schemas.js";
 
 export const askRouter = Router();
@@ -24,7 +25,7 @@ interface AiAskResult {
   }[];
 }
 
-askRouter.post("/", requireAuth, requireRole("viewer"), async (req, res) => {
+askRouter.post("/", requireAuth, requireRole("viewer"), aiRateLimit, async (req, res) => {
   const { question, topK } = AskBody.parse(req.body);
   const { status, data } = await aiPost<AiAskResult>("/v1/ask", {
     tenant_id: req.user!.tenantId,

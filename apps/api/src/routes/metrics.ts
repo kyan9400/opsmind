@@ -12,6 +12,7 @@ import { getInsights, type Insights } from "../lib/insights.js";
 import { getDailySeries, getDashboard, importDemo, importRows, listMetrics } from "../lib/metrics.js";
 import { bumpDataVersion } from "../lib/redis.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { aiRateLimit } from "../middleware/rateLimit.js";
 import { DashboardQuery, ExportQuery, UpdateMetricBody } from "../schemas.js";
 
 export const metricsRouter = Router();
@@ -36,7 +37,7 @@ metricsRouter.get("/dashboard", requireRole("viewer"), async (req, res) => {
   res.json(await getDashboard(req.user!.tenantId, q.days, q.bucket, q.to));
 });
 
-metricsRouter.get("/insights", requireRole("viewer"), async (req, res) => {
+metricsRouter.get("/insights", requireRole("viewer"), aiRateLimit, async (req, res) => {
   const q = DashboardQuery.parse(req.query);
   const dashboard = await getDashboard(req.user!.tenantId, q.days, "day", q.to);
   if (dashboard.kpis.length === 0) return res.json({ anomalies: [], summary: "", provider: "none", ms: 0 });
@@ -47,7 +48,8 @@ metricsRouter.get("/insights", requireRole("viewer"), async (req, res) => {
   }
 });
 
-metricsRouter.get("/export", requireRole("viewer"), async (req, res) => {
+// Exports embed the AI insights (and are the most expensive request), so they share the AI budget.
+metricsRouter.get("/export", requireRole("viewer"), aiRateLimit, async (req, res) => {
   const q = ExportQuery.parse(req.query);
   const tenantId = req.user!.tenantId;
   const dashboard = await getDashboard(tenantId, q.days, q.bucket, q.to);

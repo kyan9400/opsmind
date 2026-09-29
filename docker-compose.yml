@@ -31,6 +31,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
       CORS_ORIGIN: http://localhost:3000
       AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-20} # login/register attempts per IP per 15 min; 0 disables (browser tests)
+      AI_RATE_LIMIT: ${AI_RATE_LIMIT:-20} # ask/insights/export requests per user and IP per minute; 0 disables (load tests)
       REDIS_URL: redis://redis:6379
       AI_SERVICE_URL: http://ai:8000
     ports: ["4000:4000"]
@@ -65,6 +66,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text} # 768-d; a multilingual model helps cross-language questions
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1}
     ports: ["8000:8000"]
     depends_on:
       postgres: { condition: service_healthy }

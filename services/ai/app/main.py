@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field, model_validator
 
 from .anomaly import detect
-from .chunking import Chunk, chunk_text
+from .chunking import chunk_text
 from .config import settings
 from .db import get_pool
 from .embeddings import embed_batched, get_embedder
@@ -45,17 +45,6 @@ def internal_auth(x_internal_token: str = Header(default="")) -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "embed": settings.embed_provider, "llm": settings.llm_provider}
-
-
-class ChunkRequest(BaseModel):
-    text: str = Field(min_length=1)
-    max_chars: int = Field(default=800, ge=100, le=4000)
-    overlap: int = Field(default=100, ge=0, le=1000)
-
-
-@app.post("/v1/chunk", response_model=list[Chunk])
-def chunk(req: ChunkRequest) -> list[Chunk]:
-    return chunk_text(req.text, req.max_chars, req.overlap)
 
 
 class IngestRequest(BaseModel):

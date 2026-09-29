@@ -1,5 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { topAnomalyMarker, waitForAnalytics } from "../support/analytics";
 import { loadDemoKpis, registerOwner, uploadDocuments, useToken, type Account } from "../support/api";
 import { REFUND_QUESTION, SAMPLE_DOCS } from "../support/docs";
 
@@ -25,26 +26,14 @@ test.describe("README screenshots", { tag: "@screenshots" }, () => {
     await uploadDocuments(owner, SAMPLE_DOCS);
   });
 
-  /** Analytics fully settled: six charts drawn, insights in, no requests in flight. */
   async function openAnalytics(page: Page) {
     await page.goto("/dashboard/analytics");
-    await expect(page.getByTestId("kpi-card")).toHaveCount(6);
-    await expect(page.getByTestId("line-chart").locator("svg")).toHaveCount(6);
-    await expect(page.getByTestId("anomaly-row").first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("insights-panel")).toHaveAttribute("aria-busy", "false");
-    await page.waitForLoadState("networkidle");
+    await waitForAnalytics(page);
   }
 
   /** Hovers the anomaly marker nearest the top of the page, so the tooltip is inside the 900px frame. */
   async function hoverTopAnomaly(page: Page) {
-    const markers = page.getByTestId("line-chart").locator('circle[r="5"]');
-    await expect(markers.first()).toBeAttached();
-    let top = markers.first();
-    let topY = Infinity;
-    for (const m of await markers.all()) {
-      const box = await m.boundingBox();
-      if (box && box.y < topY) [top, topY] = [m, box.y];
-    }
+    const top = await topAnomalyMarker(page);
     // Only scrolls when no marker is above the fold; otherwise the shot keeps the page header in frame.
     await top.scrollIntoViewIfNeeded();
     const box = await top.boundingBox();
@@ -57,13 +46,6 @@ test.describe("README screenshots", { tag: "@screenshots" }, () => {
     await page.mouse.move(x, y, { steps: 4 });
     await expect(page.getByTestId("chart-tooltip")).toBeVisible();
   }
-
-  test("landing", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.getByTestId("landing-register")).toBeVisible();
-    await page.waitForLoadState("networkidle");
-    await shot(page, "landing.png");
-  });
 
   test("analytics", async ({ page }) => {
     await useToken(page, owner.token);
