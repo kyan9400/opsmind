@@ -10,7 +10,7 @@ import httpx
 
 from .config import settings
 from .embeddings import tokenize
-from .retrieval import Hit
+from .retrieval import STOPWORDS, Hit
 from .telemetry import LLM_DURATION, timed
 
 Timeout = float | httpx.Timeout
@@ -99,8 +99,12 @@ def cited_numbers(answer: str, n_sources: int) -> set[int]:
     return {int(m) for m in re.findall(r"\[(\d+)\]", answer) if 1 <= int(m) <= n_sources}
 
 
-def extractive_answer(question: str, hits: list[Hit], max_sentences: int = 3) -> str:
-    q = set(tokenize(question))
+def extractive_answer(
+    question: str, hits: list[Hit], max_sentences: int = 3, min_relative: float = 0.5
+) -> str:
+    # Content words only: function words ("how", "many", "for") would otherwise pull in
+    # unrelated sentences that merely share them.
+    q = set(tokenize(question)) - STOPWORDS
     scored: list[tuple[float, int, str]] = []
     for i, h in enumerate(hits, 1):
         for sentence in re.split(r"(?<=[.!?。])\s+|\n+", h.content):
@@ -112,7 +116,10 @@ def extractive_answer(question: str, hits: list[Hit], max_sentences: int = 3) ->
                 scored.append((overlap / (len(words) ** 0.5), i, sentence.strip()))
     if not scored:
         return NO_ANSWER
-    best = sorted(scored, key=lambda s: -s[0])[:max_sentences]
+    ranked = sorted(scored, key=lambda s: -s[0])
+    # Fewer, relevant sentences beat padding the answer up to max_sentences.
+    cutoff = ranked[0][0] * min_relative
+    best = [s for s in ranked[:max_sentences] if s[0] >= cutoff]
     return " ".join(f"{sentence} [{i}]" for _, i, sentence in best)
 
 
