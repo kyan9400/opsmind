@@ -10,7 +10,7 @@ import { bearer, users } from "./helpers/fakeDb.js";
 
 vi.mock("../src/lib/db.js", () => import("./helpers/fakeDb.js"));
 
-// One app per file: createApp registers the HTTP metrics, which may only happen once per registry.
+// One app for the whole file; the tests share it.
 const app = createApp();
 
 describe("rbac", () => {

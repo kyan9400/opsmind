@@ -11,6 +11,7 @@ import { auditRouter } from "./routes/audit.js";
 import { documentsRouter } from "./routes/documents.js";
 import { askRouter } from "./routes/ask.js";
 import { metricsRouter } from "./routes/metrics.js";
+import { cronRouter } from "./routes/cron.js";
 import { registry } from "./lib/apiMetrics.js";
 import { httpMetrics, markMount } from "./lib/telemetry.js";
 
@@ -30,9 +31,12 @@ export function createApp() {
   app.use(httpMetrics(registry));
 
   // Scraped by Prometheus on the internal network; the production proxy blocks it from the internet.
-  app.get("/metrics", async (_req, res) => {
-    res.type(registry.contentType).send(await registry.metrics());
-  });
+  // Hosts with nothing in front to block it (Vercel) set METRICS_PUBLIC=false, and it answers 404.
+  if (config.METRICS_PUBLIC) {
+    app.get("/metrics", async (_req, res) => {
+      res.type(registry.contentType).send(await registry.metrics());
+    });
+  }
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
   app.get("/ready", async (_req, res) => {
     try {
@@ -49,8 +53,14 @@ export function createApp() {
   app.use("/api/v1/documents", markMount, documentsRouter);
   app.use("/api/v1/ask", markMount, askRouter);
   app.use("/api/v1/metrics", markMount, metricsRouter);
+  // Scheduled jobs (Vercel Cron). Without a CRON_SECRET the routes do not exist.
+  if (config.CRON_SECRET) app.use("/api/internal/cron", markMount, cronRouter);
 
   app.use((_req, res) => res.status(404).json({ error: "not found" }));
   app.use(errorHandler);
   return app;
 }
+
+// Vercel's zero-config Express support serves the default export of this module (dist/app.js, see
+// apps/api/vercel.json). server.ts listens with the same instance.
+export default createApp();

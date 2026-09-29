@@ -1,4 +1,6 @@
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+import { config } from "../config.js";
+
+export const MAX_UPLOAD_BYTES = config.MAX_UPLOAD_BYTES;
 
 const BY_EXTENSION: Record<string, string> = {
   pdf: "application/pdf",

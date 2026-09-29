@@ -6,6 +6,27 @@ def _env(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
+def _flag(name: str, default: bool) -> bool:
+    """An on/off switch: true/false or 1/0; unset or empty keeps the default."""
+    value = os.environ.get(name, "").strip().lower()
+    if not value:
+        return default
+    if value not in ("true", "false", "1", "0"):
+        raise ValueError(f"{name} must be true or false, got {value!r}")
+    return value in ("true", "1")
+
+
+def _int(name: str, default: int) -> int:
+    """A whole number; unset or empty keeps the default (a cleared dashboard field arrives as "")."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        raise ValueError(f"{name} must be a whole number, got {value!r}") from None
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str = field(default_factory=lambda: _env("DATABASE_URL", "postgres://opsmind:opsmind@localhost:5432/opsmind"))
@@ -26,6 +47,16 @@ class Settings:
     ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://localhost:11434"))
     ollama_embed_model: str = field(default_factory=lambda: _env("OLLAMA_EMBED_MODEL", "nomic-embed-text"))
     ollama_chat_model: str = field(default_factory=lambda: _env("OLLAMA_CHAT_MODEL", "llama3.1"))
+
+    # Postgres pool. The defaults suit the long-running container. Serverless hosts (deploy/vercel) run
+    # many small instances against one pooled database, so they keep the pool small and check each
+    # connection before use: an idle one may have died while the instance was frozen (Neon also closes
+    # connections when it suspends an idle compute).
+    db_pool_max: int = field(default_factory=lambda: _int("DB_POOL_MAX", 10))
+    db_pool_check: bool = field(default_factory=lambda: _flag("DB_POOL_CHECK", False))
+
+    # false drops GET /metrics. With no private network or proxy in front (Vercel), it would be public.
+    metrics_public: bool = field(default_factory=lambda: _flag("METRICS_PUBLIC", True))
 
 
 settings = Settings()

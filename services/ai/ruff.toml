@@ -1,0 +1,4 @@
+# Lint settings. Kept out of pyproject.toml on purpose: Vercel's Python builder reads any pyproject.toml
+# as the dependency manifest and would then ignore requirements.txt (deploy/vercel/README.md).
+line-length = 110
+target-version = "py312"
