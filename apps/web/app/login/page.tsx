@@ -6,6 +6,20 @@ import { DemoLoginButton } from "@/components/DemoLoginButton";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { api, setToken } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
+import { PREVIEW } from "@/lib/preview";
+
+/** The static preview has one account, the read-only demo viewer: offer exactly that. */
+function PreviewSignIn() {
+  const t = useT();
+  return (
+    <main className="relative mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6">
+      <LanguageSwitcher className="absolute end-6 top-6" />
+      <h1 className="text-2xl font-semibold">{t("login.titleSignIn")}</h1>
+      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t("preview.loginHint")}</p>
+      <DemoLoginButton className="mt-6 [&>button]:w-full" />
+    </main>
+  );
+}
 
 function AuthForm() {
   const t = useT();
@@ -108,6 +122,7 @@ function AuthForm() {
 }
 
 export default function LoginPage() {
+  if (PREVIEW) return <PreviewSignIn />;
   return (
     <Suspense>
       <AuthForm />

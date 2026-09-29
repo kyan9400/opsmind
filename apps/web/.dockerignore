@@ -3,3 +3,6 @@ node_modules
 .next
 *.tsbuildinfo
 npm-debug.log*
+# The static interactive preview (fixtures and export) is not part of the server image.
+preview-data
+out

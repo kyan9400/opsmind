@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError, type AskResponse } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/provider";
+import { PREVIEW } from "@/lib/preview";
 
 const EXAMPLES = ["ask.example1", "ask.example2", "ask.example3"] as const;
 
@@ -88,7 +89,8 @@ export default function AskPage() {
         </button>
       </form>
 
-      {!result && !busy && (
+      {/* The preview can only answer these, so they stay on screen there. */}
+      {(!result || PREVIEW) && !busy && (
         <div className="mt-4 flex flex-wrap gap-2">
           {EXAMPLES.map((key, i) => (
             <button

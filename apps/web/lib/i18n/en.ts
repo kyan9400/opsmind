@@ -14,6 +14,32 @@ export const en = {
   "demo.button": "Try the live demo",
   "demo.loading": "Signing in…",
 
+  // Static interactive preview only (NEXT_PUBLIC_PREVIEW=1): recorded data, nothing runs behind it.
+  "preview.metaTitle": "OpsMind — interactive preview",
+  "preview.label": "About this preview",
+  "preview.banner": "Interactive preview with recorded data — no server.",
+  "preview.bannerFull": "The full system runs in GitHub Codespaces.",
+  "preview.openCodespaces": "Open in Codespaces",
+  "preview.source": "Source code",
+  "preview.recordedOn": "Recorded on {date}; dates are moved forward to today.",
+  "preview.demoButton": "Open the demo workspace",
+  "preview.loginHint": "This preview opens a read-only demo workspace. Nothing you do here is sent to a server.",
+  "preview.demoOnly": "This preview has only the demo account. Use the demo button.",
+  "preview.readOnly":
+    "This is a static preview with recorded data, so nothing can be changed here. Run the full system in GitHub Codespaces to try it.",
+  "preview.askOnly":
+    "This preview answers only the example questions; their answers were recorded from the real system. Run the full system in GitHub Codespaces to ask anything.",
+  "preview.exportOnly":
+    "The preview has recorded reports only for the default view ({range}, daily). Run the full system in GitHub Codespaces for other periods.",
+  "preview.notRecorded": "This request was not recorded for the preview.",
+  "preview.recordedAnswer": "{provider}, recorded answer",
+  "preview.noAnswer": "preview, no AI call",
+  // The recording stack answers by quoting the demo documents, which are English (scripts/record-preview.mjs).
+  "preview.englishAnswer":
+    "{provider}, recorded answer to the English version of this question (the demo documents are in English)",
+  // Stands in for landing.feature2.title ("Live …"): the preview itself must never claim to be live.
+  "preview.feature2Title": "KPI dashboards",
+
   "landing.tagline": "Your operations and company knowledge, in one AI-native workspace.",
   "landing.createWorkspace": "Create workspace",
   "landing.signIn": "Sign in",
@@ -88,7 +114,7 @@ export const en = {
   "ask.placeholder": "Ask a question…",
   "ask.submit": "Ask",
   "ask.thinking": "Thinking…",
-  "ask.example1": "What is our refund policy?",
+  "ask.example1": "How long do customers have to request a refund?",
   "ask.example2": "How fast do orders ship?",
   "ask.example3": "Who approves expenses over $1,000?",
   "ask.sources": "Sources",

@@ -1,0 +1,4 @@
+# Interactive preview: fixtures recorded from a running stack (scripts/record-preview.mjs) and the
+# static export built from them. Both are regenerated in CI, so recordings never go stale in git.
+/preview-data/
+/out/
