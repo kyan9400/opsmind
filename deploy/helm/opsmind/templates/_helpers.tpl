@@ -65,6 +65,50 @@ app.kubernetes.io/component: {{ .component }}
 {{- end }}
 
 {{/*
+Non-empty when a value is set. 0 counts as set (it disables a rate limit), which is why numeric
+settings can't use `with` or `default`: both treat 0 as empty.
+Usage: if include "opsmind.isSet" .Values.config.authRateLimit
+*/}}
+{{- define "opsmind.isSet" -}}
+{{- if not (or (kindIs "invalid" .) (eq (toString .) "")) }}true{{ end }}
+{{- end }}
+
+{{/*
+A non-negative integer setting as a string, failing the render on anything else so a typo
+doesn't surface later as an API crash loop.
+Usage: include "opsmind.intSetting" (dict "name" "config.aiRateLimit" "value" .Values.config.aiRateLimit)
+*/}}
+{{- define "opsmind.intSetting" -}}
+{{- $v := toString .value -}}
+{{- /* Values files decode numbers as float64, which toString prints as 1e+06 from a million up.
+Nested ifs: eq on an int64 from --set against a float would be an error if `and` did not short-circuit. */ -}}
+{{- if kindIs "float64" .value -}}
+{{- if eq .value (floor .value) -}}
+{{- $v = .value | int64 | toString -}}
+{{- end -}}
+{{- end -}}
+{{- if not (regexMatch "^[0-9]+$" $v) -}}
+{{- fail (printf "%s must be a non-negative integer, got %q" .name $v) -}}
+{{- end -}}
+{{- $v -}}
+{{- end }}
+
+{{/*
+Proxy hops the API trusts for X-Forwarded-For. Unset means 1 behind the chart's Ingress and 0
+otherwise; with 0 behind a proxy, every client has the controller's IP and shares its login and AI
+rate-limit buckets.
+*/}}
+{{- define "opsmind.trustProxy" -}}
+{{- if include "opsmind.isSet" .Values.config.trustProxy -}}
+{{- include "opsmind.intSetting" (dict "name" "config.trustProxy" "value" .Values.config.trustProxy) -}}
+{{- else if .Values.ingress.enabled -}}
+1
+{{- else -}}
+0
+{{- end -}}
+{{- end }}
+
+{{/*
 Image reference for an OpsMind component.
 Usage: include "opsmind.image" (dict "ctx" $ "image" .Values.api.image)
 */}}

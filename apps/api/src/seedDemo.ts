@@ -6,7 +6,8 @@
  *
  * Idempotent: re-running refreshes the KPIs (relative to today), resets the viewer's password and
  * adds any missing documents. Visitors get the viewer role, so they can explore, ask and export
- * but cannot change or delete anything.
+ * but cannot change or delete anything. It refuses to touch a DEMO_EMAIL that belongs to any other
+ * workspace, and removes every account in the demo workspace except its owner and the viewer.
  */
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
@@ -14,6 +15,7 @@ import { hashPassword } from "./lib/auth.js";
 import { pool, query, withTx } from "./lib/db.js";
 import { todayUtc } from "./lib/dates.js";
 import { generateDemoData } from "./lib/demoData.js";
+import { claimDemoWorkspace } from "./lib/demoWorkspace.js";
 import { importDemo } from "./lib/metrics.js";
 import { closeQueue, enqueueIngest } from "./lib/queue.js";
 import { bumpDataVersion, closeRedis } from "./lib/redis.js";
@@ -67,36 +69,18 @@ After a Severity 1 incident, the on-call engineer writes a postmortem within 3 b
 
 async function main() {
   const passwordHash = await hashPassword(env.DEMO_PASSWORD);
+  // An owner nobody can log in as: the workspace must have one, and the public login stays a viewer.
+  // Its random password is never printed and is replaced on every run.
+  const ownerHash = await hashPassword(randomBytes(32).toString("hex"));
 
-  const tenantId = await withTx(async (tx) => {
-    const existing = await tx.query<{ tenant_id: string }>("SELECT tenant_id FROM users WHERE email = $1", [
-      env.DEMO_EMAIL,
-    ]);
-    if (existing.rows[0]) {
-      await tx.query("UPDATE users SET password_hash = $1, role = 'viewer' WHERE email = $2", [
-        passwordHash,
-        env.DEMO_EMAIL,
-      ]);
-      return existing.rows[0].tenant_id;
-    }
-    const tenant = await tx.query<{ id: string }>("INSERT INTO tenants (name) VALUES ($1) RETURNING id", [
-      env.DEMO_TENANT_NAME,
-    ]);
-    const id = tenant.rows[0].id;
-    // An owner nobody can log in as (random password, never printed): the workspace must have one,
-    // and the public login stays a viewer.
-    await tx.query(
-      `INSERT INTO users (tenant_id, email, name, password_hash, role)
-       VALUES ($1, $2, 'Workspace owner', $3, 'owner')`,
-      [id, `owner+${id.slice(0, 8)}@demo.invalid`, await hashPassword(randomBytes(32).toString("hex"))],
-    );
-    await tx.query(
-      `INSERT INTO users (tenant_id, email, name, password_hash, role)
-       VALUES ($1, $2, 'Demo visitor', $3, 'viewer')`,
-      [id, env.DEMO_EMAIL, passwordHash],
-    );
-    return id;
-  });
+  const { tenantId, removedUsers } = await withTx((tx) =>
+    claimDemoWorkspace(tx, {
+      email: env.DEMO_EMAIL,
+      tenantName: env.DEMO_TENANT_NAME,
+      viewerHash: passwordHash,
+      ownerHash,
+    }),
+  );
 
   const kpis = await importDemo(tenantId, generateDemoData(todayUtc()));
   await bumpDataVersion(tenantId);
@@ -117,7 +101,14 @@ async function main() {
   }
 
   console.log(
-    JSON.stringify({ msg: "demo workspace ready", email: env.DEMO_EMAIL, metrics: kpis.metrics, points: kpis.points, documentsQueued: queued }),
+    JSON.stringify({
+      msg: "demo workspace ready",
+      email: env.DEMO_EMAIL,
+      metrics: kpis.metrics,
+      points: kpis.points,
+      documentsQueued: queued,
+      removedUsers,
+    }),
   );
 }
 

@@ -11,6 +11,13 @@ data:
   AI_SERVICE_URL: {{ printf "http://%s-ai:%v" (include "opsmind.fullname" .) .Values.ai.port | quote }}
   EMBED_PROVIDER: {{ .Values.config.embedProvider | quote }}
   LLM_PROVIDER: {{ .Values.config.llmProvider | quote }}
+  TRUST_PROXY: {{ include "opsmind.trustProxy" . | quote }}
+  {{- if include "opsmind.isSet" .Values.config.authRateLimit }}
+  AUTH_RATE_LIMIT: {{ include "opsmind.intSetting" (dict "name" "config.authRateLimit" "value" .Values.config.authRateLimit) | quote }}
+  {{- end }}
+  {{- if include "opsmind.isSet" .Values.config.aiRateLimit }}
+  AI_RATE_LIMIT: {{ include "opsmind.intSetting" (dict "name" "config.aiRateLimit" "value" .Values.config.aiRateLimit) | quote }}
+  {{- end }}
   {{- with .Values.config.otel.endpoint }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ . | quote }}
   {{- end }}

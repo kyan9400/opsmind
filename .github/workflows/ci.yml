@@ -85,6 +85,9 @@ jobs:
   e2e:
     needs: [api, web, ai]
     runs-on: ubuntu-latest
+    env:
+      # One user drives every AI endpoint in smoke.sh; keep the per-user AI limit out of the way.
+      AI_RATE_LIMIT: "0"
     steps:
       - uses: actions/checkout@v5
       - run: docker compose up -d --build --wait postgres redis api ai worker
@@ -160,6 +163,9 @@ jobs:
   load:
     needs: [api, web, ai]
     runs-on: ubuntu-latest
+    env:
+      # k6 runs 50 VUs with one token against ask/insights; the per-user AI limit would turn that into 429s.
+      AI_RATE_LIMIT: "0"
     steps:
       - uses: actions/checkout@v5
       - run: docker compose up -d --build --wait postgres redis api ai worker
@@ -289,6 +295,7 @@ jobs:
     env:
       # Each spec registers its own tenant from one runner IP; lift the per-IP login/register limit.
       AUTH_RATE_LIMIT: "0"
+      AI_RATE_LIMIT: "0" # and the per-user AI limit, so repeated asks/exports by one test user never hit 429
       WEB_URL: http://localhost:3000
       API_URL: http://localhost:4000
     steps:
@@ -356,6 +363,7 @@ jobs:
     env:
       # The browser specs register a tenant each, all from one runner IP; lift the per-IP login/register limit.
       AUTH_RATE_LIMIT: "0"
+      AI_RATE_LIMIT: "0" # and the per-user AI limit, so repeated asks/exports by one test user never hit 429
       WEB_URL: http://localhost:3000
       API_URL: http://localhost:3000
     steps:

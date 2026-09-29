@@ -13,6 +13,9 @@ const Env = z.object({
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
   // Login/register attempts per IP per 15 minutes; 0 disables (tests).
   AUTH_RATE_LIMIT: z.coerce.number().int().min(0).default(20),
+  // AI-backed requests (ask, insights, report exports) per user and client IP per minute, with 10x that
+  // per user across all IPs; 0 disables (load tests).
+  AI_RATE_LIMIT: z.coerce.number().int().min(0).default(20),
 });
 
 export const config = Env.parse(process.env);

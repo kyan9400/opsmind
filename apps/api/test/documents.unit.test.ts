@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
-import { signToken } from "../src/lib/auth.js";
 import { decodeFilename, resolveMimeType, titleFromFilename } from "../src/lib/files.js";
+import { bearer } from "./helpers/fakeDb.js";
+
+vi.mock("../src/lib/db.js", () => import("./helpers/fakeDb.js"));
 
 describe("file helpers", () => {
   it("resolves supported types by extension", () => {
@@ -26,7 +28,7 @@ describe("file helpers", () => {
 
 describe("documents + ask http (no database)", () => {
   const app = createApp();
-  const token = (role: "viewer" | "member") => `Bearer ${signToken({ sub: "u1", tenantId: "t1", role })}`;
+  const token = (role: "viewer" | "member") => bearer(role);
 
   it("viewers cannot upload", async () => {
     await request(app)

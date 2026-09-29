@@ -1,14 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import ExcelJS from "exceljs";
 import { createApp } from "../src/app.js";
-import { signToken } from "../src/lib/auth.js";
 import { metricKey, normaliseValue, parseMetricsCsv, sniffDelimiter } from "../src/lib/csv.js";
 import { addDays, eachDay, periodsFor } from "../src/lib/dates.js";
 import { generateDemoData } from "../src/lib/demoData.js";
 import { buildPdf, buildXlsx, isGoodChange, type ReportData } from "../src/lib/exporters.js";
 import { formatDeltaPct, formatValue } from "../src/lib/format.js";
 import type { Dashboard } from "../src/lib/metrics.js";
+import { bearer } from "./helpers/fakeDb.js";
+
+vi.mock("../src/lib/db.js", () => import("./helpers/fakeDb.js"));
 
 describe("csv import parsing", () => {
   it("accepts header aliases, semicolons, decimal commas and dd.mm.yyyy dates", () => {
@@ -179,7 +181,7 @@ describe("exports", () => {
 
 describe("metrics http (no database)", () => {
   const app = createApp();
-  const token = (role: "viewer" | "member" | "admin") => `Bearer ${signToken({ sub: "u1", tenantId: "t1", role })}`;
+  const token = (role: "viewer" | "member" | "admin") => bearer(role);
 
   it("validates dashboard queries", async () => {
     await request(app).get("/api/v1/metrics/dashboard?days=1000").set("authorization", token("viewer")).expect(400);

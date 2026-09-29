@@ -44,6 +44,19 @@ config:
   embedProvider: hash
   # Answer generator: extractive (offline), openai, anthropic, ollama.
   llmProvider: extractive
+  # Reverse-proxy hops in front of the API (TRUST_PROXY). Login and AI rate limits key on the client
+  # IP, so behind a proxy the API must read it from X-Forwarded-For, or every client has the proxy's
+  # IP and shares its buckets.
+  # Empty = auto: 1 when ingress.enabled, else 0. Count every hop that appends to X-Forwarded-For,
+  # e.g. 2 when an L7 cloud load balancer sits in front of the ingress controller.
+  trustProxy: ""
+  # Rate limits are counted per API pod (in-memory), so N replicas allow up to N times these.
+  # Login/register attempts per client IP per 15 minutes (AUTH_RATE_LIMIT); 0 disables.
+  # Empty = the API default (20).
+  authRateLimit: ""
+  # AI-backed requests (ask, insights, report exports) per user and client IP per minute, capped at
+  # 10x that per account across all IPs (AI_RATE_LIMIT); 0 disables. Empty = the API default (20).
+  aiRateLimit: ""
   otel:
     # OTLP/HTTP collector endpoint, e.g. http://otel-collector.observability:4318. Tracing is off when empty.
     endpoint: ""

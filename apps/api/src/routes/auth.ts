@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Router } from "express";
 import { rateLimit } from "express-rate-limit";
 import { config } from "../config.js";
@@ -22,7 +23,16 @@ const credentialLimiter = rateLimit({
 });
 authRouter.use(["/login", "/register"], credentialLimiter);
 
-/** Creates a new tenant and its first user (the owner). */
+// Compared against when the email is unknown, so login costs one bcrypt compare either way and the
+// response time does not reveal which accounts exist. Random input, so it never matches; hashed once at
+// startup with the same cost as real passwords.
+const DUMMY_HASH = hashPassword(randomBytes(16).toString("hex"));
+
+/**
+ * Creates a new tenant and its first user (the owner). A taken email ends in the generic 409
+ * "already exists" from the error handler, with no email, tenant or constraint details. Hiding even
+ * that needs email verification (answer the same either way, then email the address owner).
+ */
 authRouter.post("/register", async (req, res) => {
   const body = RegisterBody.parse(req.body);
   const passwordHash = await hashPassword(body.password);
@@ -49,10 +59,9 @@ authRouter.post("/login", async (req, res) => {
     "SELECT id, tenant_id, role, password_hash FROM users WHERE email = $1",
     [body.email],
   );
-  // Same error for unknown email and wrong password to avoid account enumeration.
-  if (!user || !(await verifyPassword(body.password, user.password_hash))) {
-    throw new HttpError(401, "invalid credentials");
-  }
+  // Same error and the same bcrypt work for unknown email and wrong password to avoid account enumeration.
+  const valid = await verifyPassword(body.password, user?.password_hash ?? (await DUMMY_HASH));
+  if (!user || !valid) throw new HttpError(401, "invalid credentials");
   await audit({ tenantId: user.tenant_id, actorId: user.id, action: "user.login" });
   res.json({ token: signToken({ sub: user.id, tenantId: user.tenant_id, role: user.role }) });
 });
