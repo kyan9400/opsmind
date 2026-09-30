@@ -7,7 +7,9 @@
 
 ![Demo tour: sign in to the demo, inspect an anomaly on the analytics dashboard, get a cited answer, switch to Arabic (right-to-left) and back](docs/demo.gif)
 
-**Try it:** open the repo in [GitHub Codespaces](https://codespaces.new/kyan9400/opsmind?quickstart=1) and sign in with **Try the live demo** or `demo@opsmind.dev` / `opsmind-demo` (a read-only viewer). The first start builds the images and takes a few minutes, on your own free Codespaces quota ([details](.devcontainer/README.md)). Or [run it locally](#run-it-locally) with Docker.
+**Interactive preview:** [hass-ak.sourcecraft.site/opsmind](https://hass-ak.sourcecraft.site/opsmind/). It opens instantly with recorded demo data and no server, and it is clearly labelled as a preview ([how it works](deploy/sourcecraft/README.md)).
+
+**Try the full system:** open the repo in [GitHub Codespaces](https://codespaces.new/kyan9400/opsmind?quickstart=1) and sign in with **Try the live demo** or `demo@opsmind.dev` / `opsmind-demo` (a read-only viewer). The first start builds the images and takes a few minutes, on your own free Codespaces quota ([details](.devcontainer/README.md)). Or [run it locally](#run-it-locally) with Docker.
 
 **Measured in CI:**
 
