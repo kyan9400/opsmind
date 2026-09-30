@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import { eachDay } from "./dates.js";
@@ -123,8 +125,33 @@ export async function buildXlsx(r: ReportData): Promise<Buffer> {
 
 const require = createRequire(import.meta.url);
 // DejaVu covers Latin, Cyrillic and Arabic glyphs; PDF's built-in Helvetica is Latin-1 only.
-const FONT = require.resolve("dejavu-fonts-ttf/ttf/DejaVuSans.ttf");
-const FONT_BOLD = require.resolve("dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf");
+// Resolved on the first PDF, not at import: a serverless bundle that lacks the font files must still
+// boot the API. The build copies the fonts next to dist/ (scripts/copy-fonts.mjs), where a static
+// new URL() reference lets bundlers' file tracing include them; node_modules is the fallback.
+let fonts: { regular: string; bold: string } | null | undefined;
+function dejavu() {
+  if (fonts !== undefined) return fonts;
+  const candidates = [
+    () => ({
+      regular: fileURLToPath(new URL("../../fonts/DejaVuSans.ttf", import.meta.url)),
+      bold: fileURLToPath(new URL("../../fonts/DejaVuSans-Bold.ttf", import.meta.url)),
+    }),
+    () => ({
+      regular: require.resolve("dejavu-fonts-ttf/ttf/DejaVuSans.ttf"),
+      bold: require.resolve("dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf"),
+    }),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const f = candidate();
+      if (existsSync(f.regular) && existsSync(f.bold)) return (fonts = f);
+    } catch {
+      // try the next location
+    }
+  }
+  console.warn(JSON.stringify({ msg: "DejaVu fonts not found; PDF falls back to Helvetica (Latin-1 only)" }));
+  return (fonts = null);
+}
 
 function sparkline(
   doc: PDFKit.PDFDocument,
@@ -157,7 +184,10 @@ function sparkline(
 
 export function buildPdf(r: ReportData): Promise<Buffer> {
   const doc = new PDFDocument({ size: "A4", margin: 48, info: { Title: `OpsMind KPI report — ${r.tenantName}` } });
-  doc.registerFont("Sans", FONT).registerFont("Sans-Bold", FONT_BOLD).font("Sans");
+  const f = dejavu();
+  if (f) doc.registerFont("Sans", f.regular).registerFont("Sans-Bold", f.bold);
+  else doc.registerFont("Sans", "Helvetica").registerFont("Sans-Bold", "Helvetica-Bold");
+  doc.font("Sans");
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve, reject) => {
