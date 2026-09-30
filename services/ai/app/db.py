@@ -16,5 +16,6 @@ def get_pool() -> ConnectionPool:
         # failing the request (see Settings.db_pool_check).
         check=ConnectionPool.check_connection if settings.db_pool_check else None,
         configure=register_vector,
+        kwargs=None if settings.db_prepared_statements else {"prepare_threshold": None},
         open=True,
     )

@@ -31,21 +31,22 @@ jobs:
     steps:
       - name: Check the repository secrets
         env:
-          # The DIRECT connection string (host without "-pooler"): the migrator takes a session-level
-          # advisory lock, which Neon's transaction-mode pooler does not support.
-          NEON_DIRECT_URL: ${{ secrets.NEON_DIRECT_URL }}
+          # A session-level connection string (Neon: direct, no "-pooler"; Supabase: session pooler, port
+          # 5432): the migrator takes a session-level advisory lock, which transaction-mode poolers lack.
+          DATABASE_DIRECT_URL: ${{ secrets.DATABASE_DIRECT_URL || secrets.NEON_DIRECT_URL }}
           AI_SERVICE_URL: ${{ secrets.AI_SERVICE_URL }}
           AI_SERVICE_TOKEN: ${{ secrets.AI_SERVICE_TOKEN }}
         run: |
           ok=true
-          for name in NEON_DIRECT_URL AI_SERVICE_URL AI_SERVICE_TOKEN; do
+          for name in DATABASE_DIRECT_URL AI_SERVICE_URL AI_SERVICE_TOKEN; do
             if [ -z "${!name}" ]; then
               echo "::error::Add the repository secret $name (Settings -> Secrets and variables -> Actions)."
               ok=false
             fi
           done
-          case "$NEON_DIRECT_URL" in
-            *-pooler.*) echo "::error::NEON_DIRECT_URL is the pooled connection string. Copy it again with 'Connection pooling' turned OFF (no '-pooler' in the host)."; ok=false ;;
+          case "$DATABASE_DIRECT_URL" in
+            *-pooler.*) echo "::error::DATABASE_DIRECT_URL is Neon's pooled connection string. Copy it again with 'Connection pooling' turned OFF (no '-pooler' in the host)."; ok=false ;;
+            *:6543/*) echo "::error::DATABASE_DIRECT_URL uses Supabase's transaction pooler (port 6543). Use the Session pooler string (port 5432)."; ok=false ;;
           esac
           if [ "${#AI_SERVICE_TOKEN}" -lt 16 ]; then
             echo "::error::AI_SERVICE_TOKEN must be the same 16+ character value as on the Vercel projects."
@@ -72,13 +73,13 @@ jobs:
 
       - name: Apply migrations
         working-directory: apps/api
-        env: { DATABASE_URL: "${{ secrets.NEON_DIRECT_URL }}" }
+        env: { DATABASE_URL: "${{ secrets.DATABASE_DIRECT_URL || secrets.NEON_DIRECT_URL }}" }
         run: node dist/lib/migrate.js
 
       - name: Seed the demo workspace and index its documents
         working-directory: apps/api
         env:
-          DATABASE_URL: ${{ secrets.NEON_DIRECT_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_DIRECT_URL || secrets.NEON_DIRECT_URL }}
           AI_SERVICE_URL: ${{ secrets.AI_SERVICE_URL }}
           AI_SERVICE_TOKEN: ${{ secrets.AI_SERVICE_TOKEN }}
           # Must match DEMO_EMAIL/DEMO_PASSWORD on the Vercel api project and NEXT_PUBLIC_DEMO_* on web.
