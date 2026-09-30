@@ -21,6 +21,7 @@
     "@opentelemetry/instrumentation": "^0.222.0",
     "@opentelemetry/sdk-node": "^0.222.0",
     "@prometheus-io/client": "^0.16.1",
+    "@vercel/functions": "^3.9.9",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.34.0",
     "cors": "^2.8.5",

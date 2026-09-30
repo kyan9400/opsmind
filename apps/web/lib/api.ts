@@ -1,4 +1,4 @@
-// An empty NEXT_PUBLIC_API_URL means "same origin": calls go to /api/v1 on the web app's own host and
+// An empty (or "/") NEXT_PUBLIC_API_URL means "same origin": calls go to /api/v1 on the web app's own host and
 // the Next.js server proxies them to the API (API_INTERNAL_URL in next.config.mjs). `??`, not `||`,
 // so that "" is kept instead of falling back to the local-dev default.
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/+$/, "");
@@ -20,6 +20,9 @@ export class ApiError extends Error {
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
+  // Interactive preview: answered in the browser from recorded responses, never over the network.
+  // The test stays inline so webpack drops the mock and its fixtures from every other build.
+  if (process.env.NEXT_PUBLIC_PREVIEW === "1") return (await import("./mock")).mockApi<T>(path, init, token);
   const res = await fetch(apiUrl(path), {
     ...init,
     headers: {
@@ -124,6 +127,11 @@ export interface ImportResult {
 
 /** Authenticated file download (exports need the bearer token, so a plain link won't do). */
 export async function download(path: string, fallbackName: string) {
+  if (process.env.NEXT_PUBLIC_PREVIEW === "1") {
+    // The preview ships its recorded exports as static files: link to them directly.
+    const file = await (await import("./mock")).mockDownload(path);
+    return save(file.url, file.name);
+  }
   const token = getToken();
   const res = await fetch(apiUrl(path), { headers: token ? { authorization: `Bearer ${token}` } : {} });
   if (!res.ok) {
@@ -132,11 +140,15 @@ export async function download(path: string, fallbackName: string) {
   }
   const name = /filename="?([^";]+)"?/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallbackName;
   const url = URL.createObjectURL(await res.blob());
-  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  save(url, name);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function save(href: string, name: string) {
+  const a = Object.assign(document.createElement("a"), { href, download: name });
   document.body.append(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export const RANK: Role[] = ["viewer", "member", "admin", "owner"];

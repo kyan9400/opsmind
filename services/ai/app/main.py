@@ -31,10 +31,14 @@ app.middleware("http")(metrics_middleware)
 setup_tracing(app)
 
 
-@app.get("/metrics", include_in_schema=False)
 def metrics() -> Response:
-    # Internal only: the production proxy never routes to this service.
     return metrics_response()
+
+
+# Internal only: the production proxy never routes to this service. Hosts with nothing in front to keep
+# it private (Vercel) set METRICS_PUBLIC=false, and the route does not exist (404).
+if settings.metrics_public:
+    app.add_api_route("/metrics", metrics, methods=["GET"], include_in_schema=False)
 
 
 def internal_auth(x_internal_token: str = Header(default="")) -> None:

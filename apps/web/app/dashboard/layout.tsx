@@ -15,7 +15,8 @@ const links = [
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const t = useT();
-  const pathname = usePathname();
+  // The static preview is exported with trailingSlash, so the browser reports "/dashboard/analytics/".
+  const pathname = usePathname().replace(/(.)\/+$/, "$1");
   const router = useRouter();
 
   return (

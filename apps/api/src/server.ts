@@ -1,8 +1,8 @@
-import { createApp } from "./app.js";
+import app from "./app.js";
 import { config } from "./config.js";
 import { pool } from "./lib/db.js";
 
-const server = createApp().listen(config.API_PORT, () => {
+const server = app.listen(config.API_PORT, () => {
   console.log(`opsmind api listening on :${config.API_PORT}`);
 });
 

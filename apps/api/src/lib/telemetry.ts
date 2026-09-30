@@ -12,18 +12,24 @@ export function createRegistry(service: "api" | "worker") {
 // Buckets cover 5ms cache hits up to 10s LLM calls.
 export const LATENCY_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 
+type HttpLabel = "method" | "route" | "status_code";
+
 /**
  * RED metrics per route. The label is the route *template* (/api/v1/documents/:id), never the raw
  * URL, so IDs can't explode label cardinality; unmatched paths collapse into one series.
  */
 export function httpMetrics(registry: client.Registry) {
-  const duration = new client.Histogram({
-    name: "http_request_duration_seconds",
-    help: "HTTP request latency by route",
-    labelNames: ["method", "route", "status_code"],
-    buckets: LATENCY_BUCKETS,
-    registers: [registry],
-  });
+  // app.ts builds one app when it is imported (the default export Vercel serves) and tests build more
+  // with createApp(), so reuse the registry's histogram: registering a name twice throws.
+  const duration =
+    (registry.getSingleMetric("http_request_duration_seconds") as client.Histogram<HttpLabel> | undefined) ??
+    new client.Histogram({
+      name: "http_request_duration_seconds",
+      help: "HTTP request latency by route",
+      labelNames: ["method", "route", "status_code"],
+      buckets: LATENCY_BUCKETS,
+      registers: [registry],
+    });
 
   return (req: Request, res: Response, next: NextFunction) => {
     if (req.path === "/metrics") return next();

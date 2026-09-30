@@ -60,7 +60,8 @@ documentsRouter.post("/", requireRole("member"), upload.single("file"), async (r
     target: title,
     meta: { documentId: doc.id, sizeBytes: size },
   });
-  // 202: accepted, indexing happens asynchronously in the worker.
+  // 202: accepted, indexing happens asynchronously (the worker, or this process after responding when
+  // INGEST_MODE=inline).
   res.status(202).json(doc);
 });
 

@@ -10,6 +10,28 @@ export const ru: Dict = {
   "demo.button": "Попробовать демо",
   "demo.loading": "Выполняем вход…",
 
+  "preview.metaTitle": "OpsMind — интерактивное превью",
+  "preview.label": "Об этом превью",
+  "preview.banner": "Интерактивное превью на записанных данных — без сервера.",
+  "preview.bannerFull": "Полная система запускается в GitHub Codespaces.",
+  "preview.openCodespaces": "Открыть в Codespaces",
+  "preview.source": "Исходный код",
+  "preview.recordedOn": "Записано {date}; даты сдвинуты на сегодня.",
+  "preview.demoButton": "Открыть демо-пространство",
+  "preview.loginHint": "Превью открывает демо-пространство только для чтения. Ваши действия здесь никуда не отправляются.",
+  "preview.demoOnly": "В превью есть только демо-аккаунт. Нажмите кнопку демо.",
+  "preview.readOnly":
+    "Это статическое превью на записанных данных, поэтому здесь ничего нельзя изменить. Чтобы попробовать, запустите полную систему в GitHub Codespaces.",
+  "preview.askOnly":
+    "Превью отвечает только на вопросы-примеры; их ответы записаны с настоящей системы. Чтобы задать любой вопрос, запустите полную систему в GitHub Codespaces.",
+  "preview.exportOnly":
+    "В превью есть записанные отчёты только для вида по умолчанию ({range}, по дням). Для других периодов запустите полную систему в GitHub Codespaces.",
+  "preview.notRecorded": "Этот запрос не записан для превью.",
+  "preview.recordedAnswer": "{provider}, записанный ответ",
+  "preview.noAnswer": "превью, без вызова ИИ",
+  "preview.englishAnswer": "{provider}, записанный ответ на английскую версию вопроса (демо-документы на английском)",
+  "preview.feature2Title": "KPI-дашборды",
+
   "landing.tagline": "Операционные показатели и знания компании — в одном рабочем пространстве с ИИ.",
   "landing.createWorkspace": "Создать пространство",
   "landing.signIn": "Войти",
@@ -85,7 +107,7 @@ export const ru: Dict = {
   "ask.placeholder": "Задайте вопрос…",
   "ask.submit": "Спросить",
   "ask.thinking": "Ищем ответ…",
-  "ask.example1": "Какие у нас условия возврата?",
+  "ask.example1": "Сколько дней у клиента есть на возврат товара?",
   "ask.example2": "Как быстро отправляются заказы?",
   "ask.example3": "Кто согласует расходы свыше $1000?",
   "ask.sources": "Источники",

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "express",
+  "outputDirectory": "dist",
+  "regions": ["fra1"],
+  "functions": {
+    "dist/app.js": {
+      "includeFiles": "{node_modules,../../node_modules}/dejavu-fonts-ttf/ttf/DejaVuSans{,-Bold}.ttf"
+    }
+  },
+  "crons": [{ "path": "/api/internal/cron/seed", "schedule": "0 3 * * *" }]
+}

@@ -1,10 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { SpanStatusCode, context, propagation, trace } from "@opentelemetry/api";
+import { context, propagation } from "@opentelemetry/api";
 import { UnrecoverableError, Worker } from "bullmq";
 import client from "@prometheus-io/client";
-import { pool, query } from "./lib/db.js";
-import { aiPost } from "./lib/aiClient.js";
+import { pool } from "./lib/db.js";
+import { ingestOnce, markIngestFailed } from "./lib/ingest.js";
 import { INGEST_QUEUE, redisConnection, type IngestJob } from "./lib/queue.js";
 import { createRegistry } from "./lib/telemetry.js";
 
@@ -23,39 +23,16 @@ const jobsTotal = new client.Counter({
   registers: [registry],
 });
 
-// A no-op tracer unless tracing.ts started the OpenTelemetry SDK.
-const tracer = trace.getTracer("opsmind-worker");
-
 // Ingestion worker: hands each queued document to the AI service.
 // Transient failures (AI down, 5xx) retry with exponential backoff; bad files fail immediately.
 const worker = new Worker<IngestJob>(
   INGEST_QUEUE,
+  // The attempt's span is parented to the upload request that enqueued the job.
   (job) =>
-    // One span per attempt, parented to the upload request that enqueued the job; the HTTP call to
-    // the AI service (and its DB work) nests under it, so upload -> ingest reads as one trace.
-    tracer.startActiveSpan(
-      "ingest document",
-      { attributes: { "document.id": job.data.documentId, "job.attempt": job.attemptsMade + 1 } },
+    ingestOnce(
+      job.data.documentId,
+      job.attemptsMade + 1,
       propagation.extract(context.active(), job.data.trace ?? {}),
-      async (span) => {
-        try {
-          const { status, data } = await aiPost<{ chunks?: number; ms?: number; detail?: string }>(
-            "/v1/ingest",
-            { document_id: job.data.documentId },
-            120_000,
-          );
-          if (status === 422 || status === 404) throw new UnrecoverableError(data.detail ?? `ai service ${status}`);
-          if (status !== 200) throw new Error(`ai service responded ${status}`);
-          span.setAttribute("document.chunks", data.chunks ?? 0);
-          return data;
-        } catch (err) {
-          span.recordException(err as Error);
-          span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
-          throw err;
-        } finally {
-          span.end();
-        }
-      },
     ),
   { connection: redisConnection(), concurrency: 2 },
 );
@@ -75,14 +52,7 @@ worker.on("failed", async (job, err) => {
   observe(job, "failed");
   const final = err instanceof UnrecoverableError || job.attemptsMade >= (job.opts.attempts ?? 1);
   console.error(JSON.stringify({ msg: "ingest failed", documentId: job.data.documentId, final, error: err.message }));
-  if (final) {
-    // The AI service records its own failures; this covers the case where it was unreachable.
-    await query(
-      `UPDATE documents SET status = 'failed', error = COALESCE(error, $2), updated_at = now()
-        WHERE id = $1 AND status <> 'ready'`,
-      [job.data.documentId, err.message.slice(0, 500)],
-    );
-  }
+  if (final) await markIngestFailed(job.data.documentId, err.message);
 });
 
 // The worker has no HTTP API, so it serves its Prometheus metrics on a dedicated port.

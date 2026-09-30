@@ -4,10 +4,12 @@ import Link from "next/link";
 import { DemoLoginButton } from "@/components/DemoLoginButton";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { useT } from "@/lib/i18n/provider";
+import { PREVIEW } from "@/lib/preview";
 
 const features = [
   { title: "landing.feature1.title", body: "landing.feature1.body" },
-  { title: "landing.feature2.title", body: "landing.feature2.body" },
+  // "Live KPI dashboards" is true of the product, not of the recorded preview.
+  { title: PREVIEW ? "preview.feature2Title" : "landing.feature2.title", body: "landing.feature2.body" },
   { title: "landing.feature3.title", body: "landing.feature3.body" },
 ] as const;
 
@@ -19,13 +21,16 @@ export default function Home() {
       <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">OpsMind</p>
       <h1 className="mt-3 max-w-2xl text-4xl font-semibold tracking-tight sm:text-5xl">{t("landing.tagline")}</h1>
       <div className="mt-8 flex flex-wrap items-start gap-3">
-        <Link
-          href="/login?mode=register"
-          data-testid="landing-register"
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-500"
-        >
-          {t("landing.createWorkspace")}
-        </Link>
+        {/* The static preview has nothing to create a workspace in. */}
+        {!PREVIEW && (
+          <Link
+            href="/login?mode=register"
+            data-testid="landing-register"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-500"
+          >
+            {t("landing.createWorkspace")}
+          </Link>
+        )}
         <Link
           href="/login"
           data-testid="landing-signin"

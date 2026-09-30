@@ -10,6 +10,28 @@ export const ar: Dict = {
   "demo.button": "جرّب العرض التجريبي",
   "demo.loading": "جارٍ تسجيل الدخول…",
 
+  "preview.metaTitle": "OpsMind — معاينة تفاعلية",
+  "preview.label": "عن هذه المعاينة",
+  "preview.banner": "معاينة تفاعلية ببيانات مسجَّلة — بلا خادم.",
+  "preview.bannerFull": "يعمل النظام الكامل على GitHub Codespaces.",
+  "preview.openCodespaces": "افتح في Codespaces",
+  "preview.source": "الشيفرة المصدرية",
+  "preview.recordedOn": "سُجِّلت في {date}، وقُدِّمت التواريخ إلى اليوم.",
+  "preview.demoButton": "افتح مساحة العمل التجريبية",
+  "preview.loginHint": "تفتح هذه المعاينة مساحة عمل تجريبية للقراءة فقط. لا يُرسَل أي شيء تفعله هنا إلى خادم.",
+  "preview.demoOnly": "لا تتضمن هذه المعاينة سوى الحساب التجريبي. استخدم زر العرض التجريبي.",
+  "preview.readOnly":
+    "هذه معاينة ثابتة ببيانات مسجَّلة، لذا لا يمكن تغيير أي شيء هنا. شغّل النظام الكامل على GitHub Codespaces لتجربته.",
+  "preview.askOnly":
+    "تجيب هذه المعاينة عن الأسئلة المقترحة فقط، وقد سُجِّلت إجاباتها من النظام الحقيقي. لطرح أي سؤال، شغّل النظام الكامل على GitHub Codespaces.",
+  "preview.exportOnly":
+    "تتضمن المعاينة تقارير مسجَّلة للعرض الافتراضي فقط ({range}، يوميًا). للفترات الأخرى، شغّل النظام الكامل على GitHub Codespaces.",
+  "preview.notRecorded": "لم يُسجَّل هذا الطلب في المعاينة.",
+  "preview.recordedAnswer": "{provider}، إجابة مسجَّلة",
+  "preview.noAnswer": "معاينة، دون استدعاء الذكاء الاصطناعي",
+  "preview.englishAnswer": "{provider}، إجابة مسجَّلة للنسخة الإنجليزية من هذا السؤال (المستندات التجريبية بالإنجليزية)",
+  "preview.feature2Title": "لوحات مؤشرات الأداء",
+
   "landing.tagline": "عملياتك ومعرفة شركتك في مساحة عمل واحدة مبنية على الذكاء الاصطناعي.",
   "landing.createWorkspace": "إنشاء مساحة عمل",
   "landing.signIn": "تسجيل الدخول",
@@ -84,7 +106,7 @@ export const ar: Dict = {
   "ask.placeholder": "اطرح سؤالًا…",
   "ask.submit": "اسأل",
   "ask.thinking": "جارٍ البحث عن إجابة…",
-  "ask.example1": "ما سياسة الاسترداد لدينا؟",
+  "ask.example1": "كم يومًا لدى العملاء لطلب استرداد المبلغ؟",
   "ask.example2": "ما مدة شحن الطلبات؟",
   "ask.example3": "من يعتمد المصروفات التي تتجاوز 1,000 دولار؟",
   "ask.sources": "المصادر",

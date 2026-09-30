@@ -1,0 +1,98 @@
+name: Demo database
+
+# Prepares the live demo's database (deploy/vercel/README.md): applies the migrations, then seeds the
+# demo workspace and indexes its documents through the deployed AI service. Safe to re-run at any time;
+# after the first run, the API's daily cron keeps the demo data fresh on its own.
+on:
+  workflow_dispatch: # Actions tab -> "Demo database" -> "Run workflow"
+
+concurrency:
+  group: demo-db
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate-and-seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        # Explicit bash adds -o pipefail, so a failing seed can't hide behind `| tee`.
+        shell: bash
+    # Secrets are passed only to the steps below that use them, never to `npm ci` and the build: a
+    # dependency's install script could read anything in its environment.
+    env:
+      # Index the documents in this job and wait for the result, instead of queueing them for a worker.
+      INGEST_MODE: inline
+      # Only signs login tokens, which this job never does; the API config requires a value.
+      JWT_SECRET: demo-db-workflow-unused-jwt-secret
+    steps:
+      - name: Check the repository secrets
+        env:
+          # The DIRECT connection string (host without "-pooler"): the migrator takes a session-level
+          # advisory lock, which Neon's transaction-mode pooler does not support.
+          NEON_DIRECT_URL: ${{ secrets.NEON_DIRECT_URL }}
+          AI_SERVICE_URL: ${{ secrets.AI_SERVICE_URL }}
+          AI_SERVICE_TOKEN: ${{ secrets.AI_SERVICE_TOKEN }}
+        run: |
+          ok=true
+          for name in NEON_DIRECT_URL AI_SERVICE_URL AI_SERVICE_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Add the repository secret $name (Settings -> Secrets and variables -> Actions)."
+              ok=false
+            fi
+          done
+          case "$NEON_DIRECT_URL" in
+            *-pooler.*) echo "::error::NEON_DIRECT_URL is the pooled connection string. Copy it again with 'Connection pooling' turned OFF (no '-pooler' in the host)."; ok=false ;;
+          esac
+          if [ "${#AI_SERVICE_TOKEN}" -lt 16 ]; then
+            echo "::error::AI_SERVICE_TOKEN must be the same 16+ character value as on the Vercel projects."
+            ok=false
+          fi
+          $ok
+
+      - name: The AI service answers
+        # The first request after a quiet period wakes the function (a few seconds).
+        env:
+          AI_SERVICE_URL: ${{ secrets.AI_SERVICE_URL }}
+        run: |
+          if ! curl -fsS --retry 5 --retry-delay 3 --retry-all-errors --max-time 30 "${AI_SERVICE_URL%/}/health" | tee /dev/stderr | jq -e '.status == "ok"' > /dev/null; then
+            echo "::error::${AI_SERVICE_URL%/}/health did not answer. Use the ai project's Production domain (https://<name>.vercel.app), not a deployment URL, and check that the project deployed."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+        with: { persist-credentials: false } # nothing here pushes; keep the token out of .git/config
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build -w apps/api
+
+      - name: Apply migrations
+        working-directory: apps/api
+        env: { DATABASE_URL: "${{ secrets.NEON_DIRECT_URL }}" }
+        run: node dist/lib/migrate.js
+
+      - name: Seed the demo workspace and index its documents
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DIRECT_URL }}
+          AI_SERVICE_URL: ${{ secrets.AI_SERVICE_URL }}
+          AI_SERVICE_TOKEN: ${{ secrets.AI_SERVICE_TOKEN }}
+          # Must match DEMO_EMAIL/DEMO_PASSWORD on the Vercel api project and NEXT_PUBLIC_DEMO_* on web.
+          DEMO_EMAIL: ${{ secrets.DEMO_EMAIL || 'demo@opsmind.dev' }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD || 'opsmind-demo' }}
+        # Exits non-zero if a document could not be indexed (wrong AI_SERVICE_TOKEN, AI service down).
+        run: |
+          node dist/seedDemo.js | tee "$RUNNER_TEMP/seed.json"
+          {
+            echo "### Demo database ready"
+            echo
+            echo "Sign in at the web app with **$DEMO_EMAIL** (the \"Try the live demo\" button)."
+            echo
+            echo '```json'
+            jq . "$RUNNER_TEMP/seed.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

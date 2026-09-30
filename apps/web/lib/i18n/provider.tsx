@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { dirOf, isLocale, LOCALE_COOKIE, LOCALE_STORAGE_KEY, matchLocale, type Locale } from "./config";
 import { createTranslator } from "./translate";
 import type { Translator } from "./types";
@@ -43,6 +43,9 @@ export function I18nProvider({
 }) {
   // Start from the server's choice so the hydrated tree matches the HTML exactly.
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
+  // The browser's choice the first render still has to switch to. Until it renders, <html> keeps what
+  // the server (or the static shell's head script) already set, so RTL never flips to LTR for a frame.
+  const pending = useRef<Locale | null>(null);
 
   useEffect(() => {
     // Without a cookie the server only had Accept-Language to go on; refine with what the browser knows.
@@ -50,15 +53,21 @@ export function I18nProvider({
     const stored = readStored();
     if (stored) persist(stored); // restore the cookie so the next first paint is right
     const next = stored ?? matchLocale(navigator.languages?.length ? navigator.languages : [navigator.language]);
-    if (next && next !== initialLocale) setLocaleState(next);
+    if (next && next !== initialLocale) {
+      pending.current = next;
+      setLocaleState(next);
+    }
   }, [fromCookie, initialLocale]);
 
   useEffect(() => {
+    if (pending.current && pending.current !== locale) return;
+    pending.current = null;
     document.documentElement.lang = locale;
     document.documentElement.dir = dirOf(locale);
   }, [locale]);
 
   const setLocale = useCallback((l: Locale) => {
+    pending.current = null;
     setLocaleState(l);
     persist(l);
   }, []);

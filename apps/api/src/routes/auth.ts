@@ -34,6 +34,10 @@ const DUMMY_HASH = hashPassword(randomBytes(16).toString("hex"));
  * that needs email verification (answer the same either way, then email the address owner).
  */
 authRouter.post("/register", async (req, res) => {
+  // The public demo runs on a small free database: visitors use the seeded read-only login instead.
+  if (!config.ALLOW_REGISTRATION) {
+    throw new HttpError(403, "registration is disabled on this deployment; sign in with the demo account");
+  }
   const body = RegisterBody.parse(req.body);
   const passwordHash = await hashPassword(body.password);
 
