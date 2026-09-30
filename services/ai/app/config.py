@@ -54,6 +54,9 @@ class Settings:
     # connections when it suspends an idle compute).
     db_pool_max: int = field(default_factory=lambda: _int("DB_POOL_MAX", 10))
     db_pool_check: bool = field(default_factory=lambda: _flag("DB_POOL_CHECK", False))
+    # false turns off psycopg's automatic prepared statements. Transaction-mode poolers that hand each
+    # transaction a different server connection (Supabase's Supavisor on port 6543) cannot keep them.
+    db_prepared_statements: bool = field(default_factory=lambda: _flag("DB_PREPARED_STATEMENTS", True))
 
     # false drops GET /metrics. With no private network or proxy in front (Vercel), it would be public.
     metrics_public: bool = field(default_factory=lambda: _flag("METRICS_PUBLIC", True))

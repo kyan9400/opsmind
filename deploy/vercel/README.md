@@ -45,6 +45,8 @@ If a page does not open or keeps showing "Vercel Security Checkpoint", read
 
 ## Step 2. Create the database (Neon)
 
+> Neon not available in your region? Use Supabase instead: [SUPABASE.md](SUPABASE.md).
+
 1. In Neon, create a new project:
    - **Project name:** `opsmind`
    - **Postgres version:** `16`
