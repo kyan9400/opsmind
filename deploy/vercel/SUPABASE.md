@@ -37,3 +37,12 @@ steps below. Everything else stays the same.
 - Supabase pauses a free project after 7 days without activity. The daily Vercel cron job keeps it
   awake. If it was paused anyway, click **Restore project** in the dashboard.
 - The free database holds 500 MB; the demo uses a few MB.
+
+## Common mistakes
+
+| Symptom | Cause and fix |
+| --- | --- |
+| api returns `500 FUNCTION_INVOCATION_FAILED` on every page, and its logs are empty | The api stops at startup when a setting is invalid. Most often `DATABASE_URL` is "not a valid URL". |
+| `DATABASE_URL` is "not a valid URL" | The value was pasted with quote marks around it, or the database password contains `@`, `#`, `/`, `?`, `:` or `%`. Remove the quotes. Write special characters in the password URL-encoded: `@` → `%40`, `#` → `%23`, `/` → `%2F`, `?` → `%3F`, `:` → `%3A`, `%` → `%25`. Or reset the password to one with letters and digits only. |
+| `gh secret set -f file.env` fails with "unexpected character" | The env-file reader rejects some values. Set each secret on its own instead: `Get-Content -Raw value.txt \| gh secret set NAME -R <owner>/<repo>` (PowerShell) or `gh secret set NAME < value.txt` (bash). |
+| A secret value appeared in an error message you shared | Replace it: make a new random value, update it everywhere it is used (Vercel projects and GitHub secrets), then redeploy. |
