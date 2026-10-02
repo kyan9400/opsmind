@@ -2,7 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  IconAlert,
+  IconAnalytics,
+  IconArrowDown,
+  IconArrowUp,
+  IconCheckCircle,
+  IconDatabase,
+  IconDownload,
+  IconFileSheet,
+  IconInfo,
+  IconSparkles,
+  IconTrendDown,
+  IconTrendUp,
+  IconUpload,
+} from "@/components/icons";
 import { LineChart, type ChartMarker } from "@/components/LineChart";
+import { EmptyState, Page, PageHeader } from "@/components/PageHeader";
 import {
   api,
   ApiError,
@@ -22,10 +38,6 @@ import { useI18n } from "@/lib/i18n/provider";
 const RANGES = [7, 30, 90, 180] as const;
 const BUCKETS: Bucket[] = ["day", "week", "month"];
 
-const card = "rounded-xl border border-[var(--viz-border)] bg-[var(--viz-surface)]";
-const button =
-  "rounded-lg border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900";
-
 function isGood(k: Kpi): boolean | null {
   if (k.deltaPct === null || k.deltaPct === 0) return null;
   return k.direction === "up" ? k.deltaPct > 0 : k.deltaPct < 0;
@@ -34,50 +46,59 @@ function isGood(k: Kpi): boolean | null {
 function Delta({ kpi, days }: { kpi: Kpi; days: number }) {
   const { t, locale } = useI18n();
   const good = isGood(kpi);
-  // ▲/▼ encode up/down, not reading direction, so they are not mirrored in RTL.
-  const arrow = kpi.deltaPct === null || kpi.deltaPct === 0 ? "" : kpi.deltaPct > 0 ? "▲ " : "▼ ";
-  const color = good === null ? "var(--viz-ink-2)" : good ? "var(--viz-good-text)" : "var(--viz-critical-text)";
+  const tone = good === null ? "badge-neutral" : good ? "badge-success" : "badge-danger";
+  // Arrows encode up/down, not reading direction, so they are not mirrored in RTL.
+  const Arrow = kpi.deltaPct === null || kpi.deltaPct === 0 ? null : kpi.deltaPct > 0 ? IconArrowUp : IconArrowDown;
   return (
-    <p className="text-sm" style={{ color }} data-testid="kpi-delta">
-      {arrow}
-      {formatDeltaPct(kpi.deltaPct, locale)}
-      <span style={{ color: "var(--viz-ink-2)" }}> {t("analytics.vsPrevious", { count: days })}</span>
+    <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" data-testid="kpi-delta">
+      <span className={`badge ${tone} tabular-nums`} dir="ltr">
+        {Arrow && <Arrow size={12} strokeWidth={2.4} />}
+        {formatDeltaPct(kpi.deltaPct, locale)}
+      </span>
+      <span className="text-fg-subtle">{t("analytics.vsPrevious", { count: days })}</span>
     </p>
   );
 }
 
 function AnomalyRow({ a }: { a: Anomaly }) {
   const { t, locale } = useI18n();
+  const Trend = a.kind === "spike" ? IconTrendUp : IconTrendDown;
   return (
     <li data-testid="anomaly-row">
-      <a href={`#metric-${a.metricId}`} className="flex items-start gap-3 rounded-lg px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-900">
+      <a
+        href={`#metric-${a.metricId}`}
+        className="flex items-start gap-3 rounded-control border border-transparent px-3 py-2.5 transition-colors hover:border-line hover:bg-surface"
+      >
         <span
           aria-hidden
-          className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] text-white"
-          style={{ background: a.bad ? "var(--viz-critical)" : "var(--viz-good)" }}
+          className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+            a.bad ? "bg-danger-soft text-danger-text" : "bg-success-soft text-success"
+          }`}
         >
-          {a.kind === "spike" ? "▲" : "▼"}
+          <Trend size={15} />
         </span>
-        <span className="text-sm">
-          <span className="font-medium" style={{ color: a.bad ? "var(--viz-critical-text)" : "var(--viz-good-text)" }}>
-            {a.bad ? t("analytics.needsAttention") : t("analytics.positive")}
-          </span>
-          <span style={{ color: "var(--viz-ink)" }}>
-            {" "}
-            ·{" "}
+        <span className="min-w-0 flex-1 text-sm">
+          <span className="block font-medium text-fg">
             {t("analytics.anomalyOn", {
               metric: a.metric,
               date: formatDay(a.day, "day", locale),
               value: formatValue(a.value, a.unit, { locale }),
             })}
           </span>
-          <span style={{ color: "var(--viz-ink-2)" }}>
-            {a.deviationPct !== null &&
-              ` — ${t(a.kind === "spike" ? "analytics.anomalyAbove" : "analytics.anomalyBelow", {
+          {a.deviationPct !== null && (
+            <span className="mt-0.5 block text-fg-muted">
+              {t(a.kind === "spike" ? "analytics.anomalyAbove" : "analytics.anomalyBelow", {
                 pct: Math.abs(Math.round(a.deviationPct)),
                 expected: formatValue(a.expected, a.unit, { locale }),
-              })}`}
+              })}
+            </span>
+          )}
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center">
+          <span className={`badge ${a.bad ? "badge-danger" : "badge-success"}`}>
+            {a.bad ? t("analytics.needsAttention") : t("analytics.positive")}
           </span>
+          <span className="badge border border-line text-fg-muted">{t(`analytics.severity.${a.severity}`)}</span>
         </span>
       </a>
     </li>
@@ -87,25 +108,29 @@ function AnomalyRow({ a }: { a: Anomaly }) {
 function DataTable({ kpi, bucket }: { kpi: Kpi; bucket: Bucket }) {
   const { t, locale } = useI18n();
   return (
-    <div className="max-h-56 overflow-y-auto">
-      <table className="w-full text-sm" style={{ fontVariantNumeric: "tabular-nums" }} data-testid="kpi-table">
+    <div className="max-h-[11rem] overflow-y-auto rounded-control border border-line">
+      <table className="w-full text-sm tabular-nums" data-testid="kpi-table">
         <caption className="sr-only">{t(`analytics.caption.${bucket}`, { metric: kpi.name })}</caption>
-        <thead className="sticky top-0 bg-[var(--viz-surface)] text-start text-xs" style={{ color: "var(--viz-ink-2)" }}>
+        <thead className="sticky top-0 bg-muted text-xs text-fg-muted">
           <tr>
-            <th className="py-1 text-start font-medium">
-              {bucket === "day" ? t("analytics.colDate") : bucket === "week" ? t("analytics.colWeekOf") : t("analytics.colMonth")}
+            <th className="px-3 py-1.5 text-start font-medium">
+              {bucket === "day"
+                ? t("analytics.colDate")
+                : bucket === "week"
+                  ? t("analytics.colWeekOf")
+                  : t("analytics.colMonth")}
             </th>
-            <th className="py-1 text-end font-medium">{t("analytics.colValue")}</th>
+            <th className="px-3 py-1.5 text-end font-medium">{t("analytics.colValue")}</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-line">
           {kpi.series.map((s) => (
-            <tr key={s.bucket} className="border-t border-[var(--viz-grid)]">
-              <td className="py-1">
+            <tr key={s.bucket} className="hover:bg-muted/60">
+              <td className="px-3 py-1.5 text-fg">
                 {formatDay(s.bucket, bucket, locale)}
-                {s.partial && <span style={{ color: "var(--viz-ink-2)" }}> {t("common.partial")}</span>}
+                {s.partial && <span className="text-fg-subtle"> {t("common.partial")}</span>}
               </td>
-              <td className="py-1 text-end">{formatValue(s.value, kpi.unit, { locale })}</td>
+              <td className="px-3 py-1.5 text-end text-fg">{formatValue(s.value, kpi.unit, { locale })}</td>
             </tr>
           ))}
         </tbody>
@@ -237,7 +262,9 @@ export default function AnalyticsPage() {
     });
 
   const exportAs = (format: "xlsx" | "pdf") =>
-    runAction(format, () => download(`/metrics/export?format=${format}&days=${days}&bucket=${bucket}`, `opsmind-kpis.${format}`));
+    runAction(format, () =>
+      download(`/metrics/export?format=${format}&days=${days}&bucket=${bucket}`, `opsmind-kpis.${format}`),
+    );
 
   const canImport = me && atLeast(me.role, "member");
   const isAdmin = me && atLeast(me.role, "admin");
@@ -247,33 +274,65 @@ export default function AnalyticsPage() {
   const [demoBefore, demoAfter] = t("analytics.emptyDemo").split("{demo}");
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-semibold">{t("analytics.title")}</h1>
-          {data && (
-            <p className="text-sm" style={{ color: "var(--viz-ink-2)" }} data-testid="analytics-period">
+    <Page>
+      <PageHeader
+        title={t("analytics.title")}
+        description={
+          data && (
+            <p data-testid="analytics-period">
               {t("analytics.period", {
                 count: days,
                 from: formatDay(data.period.from, "day", locale),
                 to: formatDay(data.period.to, "day", locale),
               })}
             </p>
-          )}
-        </div>
-      </div>
+          )
+        }
+        actions={
+          <>
+            {canImport && (
+              <>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv,.tsv,.txt,text/csv"
+                  className="hidden"
+                  data-testid="analytics-import-input"
+                  onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])}
+                />
+                <button
+                  className="btn btn-secondary"
+                  disabled={!!busy}
+                  onClick={() => fileRef.current?.click()}
+                  data-testid="analytics-import"
+                >
+                  <IconUpload size={16} className="text-fg-subtle" />
+                  {busy === "import" ? t("analytics.importing") : t("analytics.importCsv")}
+                </button>
+              </>
+            )}
+            {isAdmin && (
+              <button className="btn btn-secondary" disabled={!!busy} onClick={loadDemo} data-testid="analytics-demo">
+                <IconDatabase size={16} className="text-fg-subtle" />
+                {busy === "demo" ? t("analytics.loadingDemo") : t("analytics.loadDemo")}
+              </button>
+            )}
+          </>
+        }
+      />
 
-      {/* One filter row above everything it scopes. */}
-      <div className="mt-5 flex flex-wrap items-center gap-2">
+      {/* One toolbar above everything it scopes: view controls at the start, exports at the end. */}
+      <div className="card mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 p-2">
         <div
           role="radiogroup"
           aria-label={t("analytics.rangeLabel")}
           data-testid="analytics-range"
-          className="inline-flex rounded-lg border border-zinc-300 p-0.5 dark:border-zinc-700"
+          className="segmented"
         >
           {RANGES.map((r) => (
             <button
               key={r}
+              type="button"
               role="radio"
               aria-checked={days === r}
               data-testid={`analytics-range-${r}`}
@@ -281,7 +340,7 @@ export default function AnalyticsPage() {
                 setDays(r);
                 setShowAll(false);
               }}
-              className={`rounded-md px-3 py-1 text-sm ${days === r ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"}`}
+              className="segment"
             >
               {t("analytics.range", { count: r })}
             </button>
@@ -295,7 +354,7 @@ export default function AnalyticsPage() {
           value={bucket}
           onChange={(e) => setBucket(e.target.value as Bucket)}
           data-testid="analytics-bucket"
-          className="rounded-lg border border-zinc-300 bg-transparent px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+          className="input h-9 w-auto cursor-pointer pe-8"
         >
           {BUCKETS.map((b) => (
             <option key={b} value={b}>
@@ -303,36 +362,45 @@ export default function AnalyticsPage() {
             </option>
           ))}
         </select>
-        <label className="ms-1 flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={table} onChange={(e) => setTable(e.target.checked)} data-testid="analytics-table-toggle" />{" "}
+        {/* A real checkbox laid invisibly over the switch, so it stays clickable, checkable and focusable. */}
+        <label className="flex cursor-pointer items-center gap-2 px-1 text-sm font-medium text-fg-muted select-none">
+          <span className="relative inline-flex h-5 w-9 shrink-0">
+            <input
+              type="checkbox"
+              checked={table}
+              onChange={(e) => setTable(e.target.checked)}
+              data-testid="analytics-table-toggle"
+              className="peer absolute inset-0 z-10 m-0 cursor-pointer opacity-0"
+            />
+            <span
+              aria-hidden
+              className="absolute inset-0 rounded-full bg-line-strong transition-colors peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface"
+            />
+            <span
+              aria-hidden
+              className="absolute start-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ltr:peer-checked:translate-x-4 rtl:peer-checked:-translate-x-4"
+            />
+          </span>
           {t("analytics.tableView")}
         </label>
 
-        <div className="ms-auto flex flex-wrap gap-2">
-          {canImport && (
-            <>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv,.tsv,.txt,text/csv"
-                className="hidden"
-                data-testid="analytics-import-input"
-                onChange={(e) => e.target.files?.[0] && importCsv(e.target.files[0])}
-              />
-              <button className={button} disabled={!!busy} onClick={() => fileRef.current?.click()} data-testid="analytics-import">
-                {busy === "import" ? t("analytics.importing") : t("analytics.importCsv")}
-              </button>
-            </>
-          )}
-          {isAdmin && (
-            <button className={button} disabled={!!busy} onClick={loadDemo} data-testid="analytics-demo">
-              {busy === "demo" ? t("analytics.loadingDemo") : t("analytics.loadDemo")}
-            </button>
-          )}
-          <button className={button} disabled={!!busy || !!empty} onClick={() => exportAs("xlsx")} data-testid="analytics-export-xlsx">
+        <div role="group" aria-label={t("analytics.export")} className="ms-auto inline-flex rounded-control shadow-xs">
+          <button
+            className="btn btn-secondary rounded-e-none shadow-none"
+            disabled={!!busy || !!empty}
+            onClick={() => exportAs("xlsx")}
+            data-testid="analytics-export-xlsx"
+          >
+            <IconFileSheet size={16} className="text-fg-subtle" />
             {busy === "xlsx" ? t("analytics.exporting") : t("analytics.exportXlsx")}
           </button>
-          <button className={button} disabled={!!busy || !!empty} onClick={() => exportAs("pdf")} data-testid="analytics-export-pdf">
+          <button
+            className="btn btn-secondary -ms-px rounded-s-none shadow-none"
+            disabled={!!busy || !!empty}
+            onClick={() => exportAs("pdf")}
+            data-testid="analytics-export-pdf"
+          >
+            <IconDownload size={16} className="text-fg-subtle" />
             {busy === "pdf" ? t("analytics.exporting") : t("analytics.exportPdf")}
           </button>
         </div>
@@ -343,30 +411,41 @@ export default function AnalyticsPage() {
           role={notice.kind === "error" ? "alert" : "status"}
           data-testid="analytics-notice"
           data-kind={notice.kind}
-          className="mt-3 text-sm"
-          style={{ color: notice.kind === "error" ? "var(--viz-critical-text)" : "var(--viz-ink-2)" }}
+          className={`mt-3 flex items-start gap-2 rounded-control px-3 py-2 text-sm ${
+            notice.kind === "error" ? "bg-danger-soft text-danger-text" : "bg-success-soft text-success"
+          }`}
         >
-          {notice.text}
+          {notice.kind === "error" ? (
+            <IconAlert size={16} className="mt-0.5" />
+          ) : (
+            <IconCheckCircle size={16} className="mt-0.5" />
+          )}
+          <span>{notice.text}</span>
         </p>
       )}
 
       {empty && (
-        <section className={`${card} mt-6 p-6`} data-testid="analytics-empty">
-          <h2 className="font-medium">{t("analytics.emptyTitle")}</h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--viz-ink-2)" }}>
-            {t("analytics.emptyBody")}
-          </p>
-          {/* CSV is data, not prose: keep it LTR on Arabic pages. */}
-          <pre dir="ltr" className="mt-3 overflow-x-auto rounded-lg bg-zinc-100 p-3 text-start text-xs dark:bg-zinc-900">
-            {SAMPLE_CSV}
-          </pre>
-          {isAdmin && (
-            <p className="mt-3 text-sm">
-              {demoBefore}
-              <strong>{t("analytics.loadDemo")}</strong>
-              {demoAfter}
-            </p>
-          )}
+        <section className="card mt-6" data-testid="analytics-empty">
+          <EmptyState
+            icon={<IconAnalytics size={22} />}
+            title={t("analytics.emptyTitle")}
+            body={t("analytics.emptyBody")}
+          >
+            {/* CSV is data, not prose: keep it LTR on Arabic pages. */}
+            <pre
+              dir="ltr"
+              className="mt-5 w-full max-w-md overflow-x-auto rounded-control border border-line bg-muted p-3 text-start font-mono text-xs text-fg"
+            >
+              {SAMPLE_CSV}
+            </pre>
+            {isAdmin && (
+              <p className="mt-4 text-sm text-fg-muted">
+                {demoBefore}
+                <strong className="text-fg">{t("analytics.loadDemo")}</strong>
+                {demoAfter}
+              </p>
+            )}
+          </EmptyState>
         </section>
       )}
 
@@ -374,52 +453,80 @@ export default function AnalyticsPage() {
         // Refetch keeps the frame: the previous render stays, dimmed, instead of a skeleton flash.
         <div className={`transition-opacity ${loading ? "opacity-60" : ""}`} aria-busy={loading}>
           <section
-            className={`${card} mt-6 p-5 transition-opacity ${insightsState === "loading" && insights ? "opacity-60" : ""}`}
+            className={`mt-6 overflow-hidden rounded-card border border-brand-line bg-gradient-to-b from-brand-soft to-surface shadow-card transition-opacity ${
+              insightsState === "loading" && insights ? "opacity-60" : ""
+            }`}
             aria-live="polite"
             aria-busy={insightsState === "loading"}
             data-testid="insights-panel"
           >
-            <h2 className="flex items-center gap-2 text-sm font-medium" style={{ color: "var(--viz-ink-2)" }}>
-              {t("analytics.insights")}
+            <div className="flex items-center gap-2.5 px-5 pt-4">
+              <span
+                aria-hidden
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 text-white"
+              >
+                <IconSparkles size={15} />
+              </span>
+              <h2 className="text-sm font-semibold text-fg">{t("analytics.insights")}</h2>
+              {anomalies.length > 0 && <span className="badge badge-brand tabular-nums">{anomalies.length}</span>}
               {/* The previous range's insights stay visible (dimmed) while the new range is analysed. */}
-              {insightsState === "loading" && insights && <span className="text-xs font-normal">{t("analytics.updating")}</span>}
-            </h2>
-            {insightsState === "loading" && !insights && <p className="mt-2 text-sm">{t("analytics.analyzing")}</p>}
-            {insightsState === "error" && (
-              <p className="mt-2 text-sm" style={{ color: "var(--viz-ink-2)" }}>
-                {t("analytics.insightsError")}{" "}
-                <button className="underline" onClick={loadInsights} data-testid="insights-retry">
-                  {t("analytics.retry")}
-                </button>
-              </p>
-            )}
-            {insights && (
-              <>
-                {/* The summary is generated in whatever language the API uses; let the text pick its own direction. */}
-                <p className="mt-2 leading-relaxed" style={{ color: "var(--viz-ink)" }} dir="auto" data-testid="insights-summary">
-                  {insights.summary}
+              {insightsState === "loading" && insights && (
+                <span className="text-xs text-fg-subtle">{t("analytics.updating")}</span>
+              )}
+            </div>
+            <div className="px-5 pt-2 pb-4">
+              {insightsState === "loading" && !insights && (
+                <p className="text-sm text-fg-muted motion-safe:animate-pulse">{t("analytics.analyzing")}</p>
+              )}
+              {insightsState === "error" && (
+                <p className="flex items-center gap-2 text-sm text-fg-muted">
+                  <IconInfo size={16} />
+                  <span>
+                    {t("analytics.insightsError")}{" "}
+                    <button
+                      className="font-medium text-brand-text underline underline-offset-2"
+                      onClick={loadInsights}
+                      data-testid="insights-retry"
+                    >
+                      {t("analytics.retry")}
+                    </button>
+                  </span>
                 </p>
-                {anomalies.length > 0 && (
-                  <>
-                    <ul className="mt-3 space-y-0.5">
-                      {visibleAnomalies.map((a) => (
-                        <AnomalyRow key={`${a.metricId}-${a.day}`} a={a} />
-                      ))}
-                    </ul>
-                    {anomalies.length > 5 && (
-                      <button className="mt-2 text-sm underline" onClick={() => setShowAll(!showAll)} data-testid="insights-show-all">
-                        {showAll ? t("analytics.showFewer") : t("analytics.showAll", { count: anomalies.length })}
-                      </button>
-                    )}
-                  </>
-                )}
-                {bucket !== "day" && anomalies.length > 0 && (
-                  <p className="mt-2 text-xs" style={{ color: "var(--viz-ink-2)" }}>
-                    {t("analytics.dailyOnly")}
+              )}
+              {insights && (
+                <>
+                  {/* The summary is generated in whatever language the API uses; let the text pick its own direction. */}
+                  <p
+                    className="max-w-4xl text-[0.9375rem] leading-relaxed text-fg"
+                    dir="auto"
+                    data-testid="insights-summary"
+                  >
+                    {insights.summary}
                   </p>
-                )}
-              </>
-            )}
+                  {anomalies.length > 0 && (
+                    <>
+                      <ul className="-mx-3 mt-3 space-y-0.5">
+                        {visibleAnomalies.map((a) => (
+                          <AnomalyRow key={`${a.metricId}-${a.day}`} a={a} />
+                        ))}
+                      </ul>
+                      {anomalies.length > 5 && (
+                        <button
+                          className="btn btn-ghost btn-sm mt-2 -ms-2.5 text-brand-text"
+                          onClick={() => setShowAll(!showAll)}
+                          data-testid="insights-show-all"
+                        >
+                          {showAll ? t("analytics.showFewer") : t("analytics.showAll", { count: anomalies.length })}
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {bucket !== "day" && anomalies.length > 0 && (
+                    <p className="mt-2 text-xs text-fg-subtle">{t("analytics.dailyOnly")}</p>
+                  )}
+                </>
+              )}
+            </div>
           </section>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -429,30 +536,35 @@ export default function AnalyticsPage() {
                 id={`metric-${k.id}`}
                 data-testid="kpi-card"
                 data-kpi-key={k.key}
-                className={`${card} min-w-0 scroll-mt-20 p-5`}
+                className="card min-w-0 scroll-mt-20 p-5 target:ring-2 target:ring-ring/40"
               >
-                <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="text-sm font-medium" style={{ color: "var(--viz-ink-2)" }} data-testid="kpi-name">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="text-sm font-medium text-fg-muted" data-testid="kpi-name">
                     {k.name}
                   </h3>
-                  <span className="text-xs" style={{ color: "var(--viz-ink-2)" }}>
+                  <span className="badge badge-neutral">
                     {k.aggregation === "sum" ? t("analytics.total") : t("analytics.dailyAverage")}
                   </span>
                 </div>
-                <p className="mt-1 text-2xl font-semibold" style={{ color: "var(--viz-ink)" }} data-testid="kpi-value">
+                <p
+                  className="mt-1.5 text-3xl font-semibold tracking-tight text-fg tabular-nums"
+                  data-testid="kpi-value"
+                >
                   {formatValue(k.current, k.unit, { compact: true, locale })}
                 </p>
                 <Delta kpi={k} days={days} />
-                <div className="mt-3">
+                <div className="mt-4">
                   {k.series.length === 0 ? (
-                    <p className="py-10 text-center text-sm" style={{ color: "var(--viz-ink-2)" }}>
-                      {t("analytics.noData")}
-                    </p>
+                    <p className="py-10 text-center text-sm text-fg-subtle">{t("analytics.noData")}</p>
                   ) : table ? (
                     <DataTable kpi={k} bucket={bucket} />
                   ) : (
                     <LineChart
-                      points={k.series.map((s) => ({ x: s.bucket, value: s.value, partial: bucket !== "day" && s.partial }))}
+                      points={k.series.map((s) => ({
+                        x: s.bucket,
+                        value: s.value,
+                        partial: bucket !== "day" && s.partial,
+                      }))}
                       markers={bucket === "day" ? markersByMetric.get(k.id) : undefined}
                       unit={k.unit}
                       bucket={bucket}
@@ -465,6 +577,6 @@ export default function AnalyticsPage() {
           </div>
         </div>
       )}
-    </main>
+    </Page>
   );
 }
