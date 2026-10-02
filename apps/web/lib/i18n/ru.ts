@@ -188,4 +188,58 @@ export const ru: Dict = {
   "chart.weekOf": "Неделя с {date}",
   "chart.markerBad": "⚠ Требует внимания: {delta} к ожидаемому значению {expected}",
   "chart.markerGood": "✓ Необычно, но в лучшую сторону: {delta} к ожидаемому значению {expected}",
+
+  // Лендинг, карточка входа и оболочка приложения.
+  "landing.eyebrow": "Открытый код · Мультитенантность · ИИ в основе",
+  "landing.subline":
+    "KPI-дашборды, которые замечают необычные изменения, и ответы по документам компании со ссылками на источники — в одном защищённом рабочем пространстве.",
+  "landing.navFeatures": "Возможности",
+  "landing.navHowItWorks": "Как это работает",
+  "landing.viewSource": "Код на GitHub",
+  "landing.featuresTitle": "Всё, что нужно операционной команде, — в одном месте",
+  "landing.featuresSubtitle": "От сырых метрик и разрозненных документов — к ответам, которым можно доверять.",
+  "landing.feature4.title": "Три языка и поддержка RTL",
+  "landing.feature4.body": "Интерфейс полностью на английском, русском и арабском, с зеркальной раскладкой справа налево.",
+  "landing.howTitle": "Как это работает",
+  "landing.step1.title": "Загрузите данные",
+  "landing.step1.body": "Импортируйте историю KPI из CSV и загрузите документы в PDF, TXT или Markdown.",
+  "landing.step2.title": "OpsMind их анализирует",
+  "landing.step2.body": "Документы разбиваются на фрагменты и индексируются, а метрики проверяются на аномалии.",
+  "landing.step3.title": "Спрашивайте и действуйте",
+  "landing.step3.body": "Ответы со ссылками, понятные выводы и отчёты Excel или PDF в один клик.",
+  "landing.techTitle": "Технологии",
+  "landing.footerNote": "OpsMind — проект для портфолио с открытым исходным кодом.",
+  "landing.mock.revenue": "Выручка",
+  "landing.mock.orders": "Заказы",
+  "landing.mock.satisfaction": "Удовлетворённость клиентов",
+  "landing.mock.insight": "В прошлый вторник заказов было на 41% больше ожидаемого — стоит проверить.",
+
+  "login.subtitleSignIn": "С возвращением! Войдите в своё рабочее пространство.",
+  "login.subtitleRegister": "Создайте пространство для команды меньше чем за минуту.",
+  "login.or": "или",
+  "login.demoTitle": "Просто осматриваетесь?",
+  "login.demoBody": "Откройте демо-пространство с примерами данных в режиме чтения. Регистрация не нужна.",
+  "login.backHome": "На главную",
+
+  "nav.openMenu": "Открыть меню",
+  "nav.closeMenu": "Закрыть меню",
+  "nav.workspace": "Рабочее пространство",
+
+  "overview.subtitle": "Краткая сводка по рабочему пространству.",
+  "overview.shortcuts": "Быстрый переход",
+  "overview.inviteTitle": "Добавить участника",
+  "overview.noActivity": "Действий пока нет.",
+
+  "analytics.severity.high": "Высокая",
+  "analytics.severity.medium": "Средняя",
+  "analytics.export": "Экспорт",
+
+  "docs.uploadTitle": "Добавить документ",
+  "docs.formats": "PDF, TXT или Markdown",
+  "docs.emptyHint": "Загруженные файлы появятся здесь и после индексации станут доступны для вопросов.",
+
+  "ask.you": "Вы",
+  "ask.answer": "Ответ",
+  "ask.tryExample": "Попробуйте пример",
+  "ask.cited": "Цитируется",
 };

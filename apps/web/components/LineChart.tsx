@@ -32,7 +32,7 @@ const M = { top: 10, right: 12, bottom: 26, left: 52 };
  * Single-series line chart: 2px line with a 10% area wash, hairline grid, snapping crosshair
  * + tooltip on hover and arrow keys, and status-coloured anomaly markers with a surface ring.
  */
-export function LineChart({ points, markers = [], unit, bucket, label, height = 170 }: Props) {
+export function LineChart({ points, markers = [], unit, bucket, label, height = 180 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [active, setActive] = useState<number | null>(null);
@@ -109,8 +109,8 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
         >
           <defs>
             <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0" stopColor="var(--viz-series-1)" stopOpacity="0.12" />
-              <stop offset="1" stopColor="var(--viz-series-1)" stopOpacity="0.02" />
+              <stop offset="0" stopColor="var(--viz-series-1)" stopOpacity="0.16" />
+              <stop offset="1" stopColor="var(--viz-series-1)" stopOpacity="0" />
             </linearGradient>
           </defs>
 
@@ -229,7 +229,7 @@ export function LineChart({ points, markers = [], unit, bucket, label, height = 
           role="status"
           dir={dir}
           data-testid="chart-tooltip"
-          className="pointer-events-none absolute z-10 min-w-36 rounded-lg border px-3 py-2 text-start text-xs shadow-lg"
+          className="pointer-events-none absolute z-10 min-w-36 rounded-control border px-3 py-2 text-start text-xs shadow-raised"
           style={{
             top: 0,
             // Sit beside the crosshair, flipping sides past 60% so it never covers the hovered point.

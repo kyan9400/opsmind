@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { IconArrowRight, IconSparkles } from "@/components/icons";
 import { api, setToken } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW } from "@/lib/preview";
@@ -12,13 +13,16 @@ const DEMO_PASSWORD = process.env.NEXT_PUBLIC_DEMO_PASSWORD;
 
 export const demoEnabled = Boolean(DEMO_EMAIL && DEMO_PASSWORD);
 
-// In the static preview it is the only way in, so it is the main button, and it must not say "live".
-const style = PREVIEW
-  ? "rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-500 disabled:opacity-60"
-  : "rounded-lg border border-indigo-300 px-4 py-2 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950";
-
 /** One-click sign-in to a shared read-only demo workspace, landing straight on the analytics view. */
-export function DemoLoginButton({ className = "" }: { className?: string }) {
+export function DemoLoginButton({
+  className = "",
+  variant = "primary",
+  size = "md",
+}: {
+  className?: string;
+  variant?: "primary" | "soft";
+  size?: "md" | "lg";
+}) {
   const t = useT();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -49,12 +53,18 @@ export function DemoLoginButton({ className = "" }: { className?: string }) {
         onClick={start}
         disabled={busy}
         data-testid="demo-login"
-        className={style}
+        // In the static preview it is the only way in, so it is always the main button (and never says "live").
+        className={`btn ${size === "lg" ? "btn-lg" : ""} ${PREVIEW || variant === "primary" ? "btn-primary" : "btn-soft"} group`}
       >
+        <IconSparkles size={size === "lg" ? 18 : 16} />
         {busy ? t("demo.loading") : PREVIEW ? t("preview.demoButton") : t("demo.button")}
+        <IconArrowRight
+          size={16}
+          className="opacity-70 transition-transform ltr:group-hover:translate-x-0.5 rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5"
+        />
       </button>
       {error && (
-        <p role="alert" data-testid="demo-login-error" className="mt-2 text-sm text-red-600">
+        <p role="alert" data-testid="demo-login-error" className="mt-2 text-sm text-danger-text">
           {error}
         </p>
       )}

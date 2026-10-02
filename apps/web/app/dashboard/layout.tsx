@@ -1,16 +1,28 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { Avatar } from "@/components/Avatar";
+import {
+  IconAnalytics,
+  IconClose,
+  IconDocuments,
+  IconLogOut,
+  IconMenu,
+  IconOverview,
+  IconSparkles,
+} from "@/components/icons";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { clearToken } from "@/lib/api";
+import { Logo } from "@/components/Logo";
+import { api, clearToken, type Me } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 
 const links = [
-  { href: "/dashboard", label: "nav.overview", testId: "nav-overview" },
-  { href: "/dashboard/analytics", label: "nav.analytics", testId: "nav-analytics" },
-  { href: "/dashboard/documents", label: "nav.documents", testId: "nav-documents" },
-  { href: "/dashboard/ask", label: "nav.ask", testId: "nav-ask" },
+  { href: "/dashboard", label: "nav.overview", testId: "nav-overview", Icon: IconOverview },
+  { href: "/dashboard/analytics", label: "nav.analytics", testId: "nav-analytics", Icon: IconAnalytics },
+  { href: "/dashboard/documents", label: "nav.documents", testId: "nav-documents", Icon: IconDocuments },
+  { href: "/dashboard/ask", label: "nav.ask", testId: "nav-ask", Icon: IconSparkles },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -18,45 +30,141 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // The static preview is exported with trailingSlash, so the browser reports "/dashboard/analytics/".
   const pathname = usePathname().replace(/(.)\/+$/, "$1");
   const router = useRouter();
+  const [me, setMe] = useState<Me | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const current = links.find((l) => l.href === pathname);
+
+  // Only for the workspace/user block; each page still does its own auth check and 401 redirect.
+  useEffect(() => {
+    api<Me>("/auth/me").then(setMe, () => {});
+  }, []);
+
+  useEffect(() => setMenuOpen(false), [pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
   return (
-    <div className="min-h-screen">
-      <nav aria-label={t("nav.label")} className="border-b border-zinc-200 dark:border-zinc-800">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-6 py-3">
-          <span className="font-semibold">OpsMind</span>
-          <div className="flex flex-wrap gap-1 text-sm">
-            {links.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                data-testid={l.testId}
-                aria-current={pathname === l.href ? "page" : undefined}
-                className={`rounded-md px-3 py-1.5 ${
-                  pathname === l.href
-                    ? "bg-zinc-200 font-medium dark:bg-zinc-800"
-                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
-                }`}
-              >
-                {t(l.label)}
-              </Link>
-            ))}
+    <div className="flex min-h-screen">
+      {menuOpen && (
+        <button
+          type="button"
+          aria-label={t("nav.closeMenu")}
+          tabIndex={-1}
+          onClick={() => setMenuOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[2px] lg:hidden"
+        />
+      )}
+
+      {/* One sidebar for every width: a sticky column from lg up, an off-canvas drawer below (start edge, so
+          it slides in from the right in Arabic). A closed drawer is `invisible`, which keeps it out of the tab order. */}
+      <aside
+        id="app-sidebar"
+        className={`z-50 w-64 shrink-0 border-e border-line bg-surface transition-[translate,visibility] duration-200 max-lg:fixed max-lg:inset-y-0 max-lg:start-0 max-lg:shadow-overlay ${
+          menuOpen
+            ? "max-lg:visible max-lg:translate-x-0"
+            : "max-lg:invisible max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"
+        }`}
+      >
+        {/* The column spans the page; only its contents stick, so the border and surface never end mid-page. */}
+        <div className="flex h-full flex-col lg:sticky lg:top-0 lg:h-dvh">
+          <div className="flex h-14 shrink-0 items-center justify-between gap-2 px-4">
+            <Link href="/dashboard" className="rounded-control">
+              <Logo />
+            </Link>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              aria-label={t("nav.closeMenu")}
+              className="btn btn-ghost btn-sm w-8 px-0 lg:hidden"
+            >
+              <IconClose />
+            </button>
           </div>
-          <div className="ms-auto flex items-center gap-3">
-            <LanguageSwitcher />
+
+          <nav aria-label={t("nav.label")} className="flex-1 overflow-y-auto px-3 py-3">
+            <ul className="space-y-0.5">
+              {links.map(({ href, label, testId, Icon }) => {
+                const active = pathname === href;
+                return (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      data-testid={testId}
+                      aria-current={active ? "page" : undefined}
+                      className={`flex h-9 items-center gap-3 rounded-control px-3 text-sm font-medium transition-colors ${
+                        active ? "bg-brand-soft text-brand-soft-fg" : "text-fg-muted hover:bg-muted hover:text-fg"
+                      }`}
+                    >
+                      <Icon size={18} className={active ? "text-brand-text" : "text-fg-subtle"} />
+                      {t(label)}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+
+          <div className="shrink-0 border-t border-line p-3">
+            {me && (
+              <div className="mb-2 rounded-control bg-muted p-3" data-testid="sidebar-account">
+                <p className="eyebrow">{t("nav.workspace")}</p>
+                <p className="mt-0.5 truncate text-sm font-semibold text-fg">{me.tenantName}</p>
+                <div className="mt-3 flex items-center gap-2.5">
+                  <Avatar name={me.name} />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-fg">{me.name}</p>
+                    <p className="truncate text-xs text-fg-subtle">{t(`role.${me.role}`)}</p>
+                  </div>
+                </div>
+              </div>
+            )}
             <button
               onClick={() => {
                 clearToken();
                 router.push("/login");
               }}
               data-testid="nav-signout"
-              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700"
+              className="btn btn-ghost w-full justify-start gap-3 px-3"
             >
+              <IconLogOut size={18} className="text-fg-subtle rtl:-scale-x-100" />
               {t("nav.signOut")}
             </button>
           </div>
         </div>
-      </nav>
-      {children}
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-canvas/85 px-4 backdrop-blur-md sm:px-6 lg:px-8">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            aria-label={t("nav.openMenu")}
+            aria-expanded={menuOpen}
+            aria-controls="app-sidebar"
+            className="btn btn-ghost btn-sm -ms-1.5 w-8 px-0 lg:hidden"
+          >
+            <IconMenu size={20} />
+          </button>
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            {me && (
+              <>
+                <span className="hidden truncate text-fg-subtle sm:inline">{me.tenantName}</span>
+                <span aria-hidden className="hidden text-line-strong sm:inline">
+                  /
+                </span>
+              </>
+            )}
+            <span className="truncate font-semibold text-fg">{current ? t(current.label) : "OpsMind"}</span>
+          </div>
+          <LanguageSwitcher className="ms-auto" />
+        </header>
+        {children}
+      </div>
     </div>
   );
 }
