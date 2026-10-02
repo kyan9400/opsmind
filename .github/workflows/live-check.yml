@@ -1,0 +1,62 @@
+# Checks the public demo from outside: the same requests a visitor's browser makes, through the web
+# app's same-origin /api proxy, plus screenshots of the live pages. Runs daily and on demand.
+name: Live check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-check
+  cancel-in-progress: true
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SITE: ${{ vars.LIVE_SITE_URL || 'https://opsmind-demo.vercel.app' }}
+      DEMO_EMAIL: demo@opsmind.dev
+      DEMO_PASSWORD: opsmind-demo
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: API through the web app
+        run: |
+          # A cold start wakes three functions and the database; give it a few tries.
+          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -o /dev/null "$SITE/"
+          TOKEN=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors -X POST "$SITE/api/v1/auth/login" \
+            -H 'content-type: application/json' \
+            -d "{\"email\":\"$DEMO_EMAIL\",\"password\":\"$DEMO_PASSWORD\"}" | jq -er .token)
+          AUTH="authorization: Bearer $TOKEN"
+          curl -fsS "$SITE/api/v1/auth/me" -H "$AUTH" | jq -e '.role == "viewer"'
+          curl -fsS "$SITE/api/v1/metrics/dashboard?days=30" -H "$AUTH" | jq -e '.kpis | length == 6'
+          curl -fsS "$SITE/api/v1/metrics/insights?days=30" -H "$AUTH" | jq -e '(.anomalies | length) > 0'
+          curl -fsS "$SITE/api/v1/documents" -H "$AUTH" | jq -e '(.data | length) >= 4 and all(.data[]; .status == "ready")'
+          curl -fsS -X POST "$SITE/api/v1/ask" -H "$AUTH" -H 'content-type: application/json' \
+            -d '{"question":"How long do customers have to request a refund?"}' \
+            | jq -e '(.answer | test("30")) and any(.citations[]; .cited)'
+          echo "Live demo OK: $SITE" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v5
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Screenshots of the live site
+        working-directory: e2e
+        run: node live/screenshots.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-screenshots
+          path: e2e/live/out/
+          if-no-files-found: ignore
