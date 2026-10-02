@@ -207,4 +207,58 @@ export const ar: Dict = {
   "chart.weekOf": "أسبوع {date}",
   "chart.markerBad": "⚠ يستدعي الانتباه: {delta} مقارنةً بالقيمة المتوقعة {expected}",
   "chart.markerGood": "✓ غير معتاد لكنه إيجابي: {delta} مقارنةً بالقيمة المتوقعة {expected}",
+
+  // الصفحة الرئيسية وبطاقة تسجيل الدخول وهيكل التطبيق.
+  "landing.eyebrow": "مفتوح المصدر · متعدد المستأجرين · مبني على الذكاء الاصطناعي",
+  "landing.subline":
+    "لوحات مؤشرات أداء تنبّهك إلى التغيّرات غير المعتادة، وإجابات من مستندات شركتك مع مصادرها — في مساحة عمل واحدة آمنة.",
+  "landing.navFeatures": "المزايا",
+  "landing.navHowItWorks": "كيف يعمل",
+  "landing.viewSource": "الشيفرة على GitHub",
+  "landing.featuresTitle": "كل ما يحتاجه فريق العمليات في مكان واحد",
+  "landing.featuresSubtitle": "من البيانات الخام والمستندات المتفرقة إلى إجابات يمكنك الوثوق بها.",
+  "landing.feature4.title": "ثلاث لغات ودعم كامل للعربية",
+  "landing.feature4.body": "الواجهة كاملة بالإنجليزية والروسية والعربية، مع تخطيط معكوس من اليمين إلى اليسار.",
+  "landing.howTitle": "كيف يعمل",
+  "landing.step1.title": "أضف بياناتك",
+  "landing.step1.body": "استورد سجل مؤشرات الأداء من ملف CSV وارفع مستندات PDF أو نصية أو Markdown.",
+  "landing.step2.title": "يحلّلها OpsMind",
+  "landing.step2.body": "تُقسَّم المستندات وتُفهرَس، وتُفحَص المؤشرات بحثًا عن التغيّرات غير المعتادة.",
+  "landing.step3.title": "اسأل واتخذ القرار",
+  "landing.step3.body": "احصل على إجابات موثّقة ورؤى واضحة وتقارير Excel أو PDF بنقرة واحدة.",
+  "landing.techTitle": "التقنيات المستخدمة",
+  "landing.footerNote": "OpsMind مشروع مفتوح المصدر ضمن معرض أعمال.",
+  "landing.mock.revenue": "الإيرادات",
+  "landing.mock.orders": "الطلبات",
+  "landing.mock.satisfaction": "رضا العملاء",
+  "landing.mock.insight": "كانت الطلبات يوم الثلاثاء الماضي أعلى من المتوقع بنسبة 41% — تستحق المراجعة.",
+
+  "login.subtitleSignIn": "مرحبًا بعودتك. سجّل الدخول إلى مساحة عملك.",
+  "login.subtitleRegister": "أنشئ مساحة عمل لفريقك في أقل من دقيقة.",
+  "login.or": "أو",
+  "login.demoTitle": "تريد الاستكشاف فقط؟",
+  "login.demoBody": "افتح مساحة عمل للقراءة فقط ببيانات تجريبية. لا حاجة إلى حساب.",
+  "login.backHome": "العودة إلى الرئيسية",
+
+  "nav.openMenu": "فتح القائمة",
+  "nav.closeMenu": "إغلاق القائمة",
+  "nav.workspace": "مساحة العمل",
+
+  "overview.subtitle": "نظرة سريعة على مساحة عملك.",
+  "overview.shortcuts": "انتقال سريع",
+  "overview.inviteTitle": "إضافة عضو",
+  "overview.noActivity": "لا يوجد نشاط بعد.",
+
+  "analytics.severity.high": "مرتفعة",
+  "analytics.severity.medium": "متوسطة",
+  "analytics.export": "تصدير",
+
+  "docs.uploadTitle": "إضافة مستند",
+  "docs.formats": "PDF أو TXT أو Markdown",
+  "docs.emptyHint": "تظهر الملفات المرفوعة هنا وتصبح جاهزة للأسئلة بعد فهرستها.",
+
+  "ask.you": "أنت",
+  "ask.answer": "الإجابة",
+  "ask.tryExample": "جرّب مثالًا",
+  "ask.cited": "مُستشهَد به",
 };
