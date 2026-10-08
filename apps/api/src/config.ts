@@ -52,6 +52,17 @@ const Env = z
     METRICS_PUBLIC: flag(true),
     // Enables GET /api/internal/cron/* for callers sending "Authorization: Bearer <CRON_SECRET>" (Vercel Cron does).
     CRON_SECRET: z.preprocess(blankToUndefined, z.string().min(16).optional()),
+    // true opens POST /api/v1/sandbox: anyone can create a temporary private workspace (24 h) with sample data.
+    ALLOW_SANDBOX: flag(false),
+    // Sandbox creations per client IP per hour; 0 disables (browser tests).
+    SANDBOX_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(3)),
+    // Unexpired sandboxes at once. The per-IP limit is per instance on serverless hosts, so this is the
+    // brake that actually protects a small free database.
+    SANDBOX_MAX_ACTIVE: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(50)),
+    // Documents per sandbox, the 4 sample ones included.
+    SANDBOX_MAX_DOCUMENTS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(10)),
+    // Rows per KPI CSV import in a sandbox (180 days x 6 sample metrics is 1,080).
+    SANDBOX_MAX_CSV_ROWS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(5000)),
   })
   .transform((env) => ({
     ...env,

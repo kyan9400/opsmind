@@ -45,6 +45,7 @@ afterAll(() => {
 afterEach(() => {
   vi.doUnmock("../src/lib/aiClient.js");
   vi.doUnmock("../src/lib/demoSeed.js");
+  vi.doUnmock("../src/lib/sandbox.js");
   vi.doUnmock("../src/lib/ingest.js");
   vi.doUnmock("../src/lib/queue.js");
   vi.doUnmock("../src/lib/metrics.js");
@@ -121,9 +122,11 @@ describe("cron seed route", () => {
     await request(createApp()).get("/api/internal/cron/seed").set("authorization", `Bearer ${SECRET}`).expect(404);
   });
 
-  it("runs the seed only for the exact bearer secret", async () => {
+  it("runs the seed and the sandbox cleanup only for the exact bearer secret", async () => {
     const seedDemo = vi.fn(async () => ({ msg: "demo workspace ready" }));
+    const deleteExpiredSandboxes = vi.fn(async () => 2);
     vi.doMock("../src/lib/demoSeed.js", () => ({ seedDemo, demoSeedOptions: () => ({}) }));
+    vi.doMock("../src/lib/sandbox.js", () => ({ deleteExpiredSandboxes, createSandbox: vi.fn() }));
     const { createApp } = await loadApp({ CRON_SECRET: SECRET });
     const app = createApp();
     const seed = () => request(app).get("/api/internal/cron/seed");
@@ -133,9 +136,13 @@ describe("cron seed route", () => {
     await seed().set("authorization", SECRET).expect(401); // the Bearer prefix is part of the contract
     await seed().set("authorization", `Bearer ${SECRET}x`).expect(401);
     expect(seedDemo).not.toHaveBeenCalled();
+    expect(deleteExpiredSandboxes).not.toHaveBeenCalled();
 
-    await seed().set("authorization", `Bearer ${SECRET}`).expect(200, { msg: "demo workspace ready" });
+    await seed()
+      .set("authorization", `Bearer ${SECRET}`)
+      .expect(200, { msg: "demo workspace ready", sandboxesDeleted: 2 });
     expect(seedDemo).toHaveBeenCalledTimes(1);
+    expect(deleteExpiredSandboxes).toHaveBeenCalledTimes(1);
   });
 
   it("explains a missing demo login instead of failing validation", async () => {

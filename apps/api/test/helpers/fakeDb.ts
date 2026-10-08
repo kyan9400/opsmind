@@ -10,14 +10,25 @@ import { vi } from "vitest";
 import { signToken } from "../../src/lib/auth.js";
 import type { Role } from "../../src/lib/rbac.js";
 
-export const users = new Map<string, { tenantId: string; role: Role }>();
+export interface FakeUser {
+  tenantId: string;
+  role: Role;
+  /** Set for members of a sandbox workspace; in the past means the sandbox has expired. */
+  expiresAt?: Date | null;
+}
+export const users = new Map<string, FakeUser>();
+
+/** The lookup requireAuth runs on every request (src/middleware/auth.ts). */
+const AUTH_LOOKUP = /^SELECT u\.role, t\.expires_at AS "expiresAt"/;
 
 const noDatabase = () => Promise.reject(new Error("no database in unit tests"));
 
 export const query = vi.fn(async (text: string, params: unknown[] = []): Promise<Record<string, unknown>[]> => {
-  if (text.startsWith("SELECT role FROM users WHERE id = $1 AND tenant_id = $2")) {
+  if (AUTH_LOOKUP.test(text)) {
     const user = users.get(params[0] as string);
-    return user && user.tenantId === params[1] ? [{ role: user.role }] : [];
+    if (!user || user.tenantId !== params[1]) return [];
+    const expiresAt = user.expiresAt ?? null;
+    return [{ role: user.role, expiresAt, expired: expiresAt && expiresAt.getTime() <= Date.now() }];
   }
   return noDatabase();
 });
@@ -25,7 +36,10 @@ export const withTx = vi.fn(noDatabase);
 export const pool = { query: noDatabase, connect: noDatabase, end: async () => {} };
 
 /** Puts a user in the fake table and returns an Authorization header carrying its token. */
-export function bearer(role: Role, { sub = `user-${role}`, tenantId = "t1" } = {}) {
-  users.set(sub, { tenantId, role });
+export function bearer(
+  role: Role,
+  { sub = `user-${role}`, tenantId = "t1", expiresAt = null as Date | null } = {},
+) {
+  users.set(sub, { tenantId, role, expiresAt });
   return `Bearer ${signToken({ sub, tenantId, role })}`;
 }

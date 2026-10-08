@@ -72,7 +72,8 @@ authRouter.post("/login", async (req, res) => {
 
 authRouter.get("/me", requireAuth, async (req, res) => {
   const [me] = await query(
-    `SELECT u.id, u.email, u.name, u.role, t.id AS "tenantId", t.name AS "tenantName"
+    // expiresAt: null for a normal workspace; set for a sandbox, which the web app counts down.
+    `SELECT u.id, u.email, u.name, u.role, t.id AS "tenantId", t.name AS "tenantName", t.expires_at AS "expiresAt"
        FROM users u JOIN tenants t ON t.id = u.tenant_id
       WHERE u.id = $1`,
     [req.user!.sub],

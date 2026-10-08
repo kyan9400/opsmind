@@ -3,6 +3,7 @@ import { Router, type RequestHandler } from "express";
 import { config } from "../config.js";
 import { demoSeedOptions, seedDemo } from "../lib/demoSeed.js";
 import { HttpError } from "../lib/errors.js";
+import { deleteExpiredSandboxes } from "../lib/sandbox.js";
 
 /**
  * Scheduled jobs. Vercel Cron calls them (apps/api/vercel.json) with "Authorization: Bearer <CRON_SECRET>";
@@ -24,6 +25,9 @@ cronRouter.use(requireCronSecret);
 
 // Daily. The demo KPIs are dated relative to the seed day, so without a refresh the analytics periods
 // (last 7/30/90/180 days) drift into the past. The run also keeps a free database from being archived.
+// Expired sandboxes go first, so a misconfigured demo login (503) cannot keep them around.
+// Hobby plans allow only daily crons, so the cleanup shares this one instead of a schedule of its own.
 cronRouter.get("/seed", async (_req, res) => {
-  res.json(await seedDemo(demoSeedOptions()));
+  const sandboxesDeleted = await deleteExpiredSandboxes();
+  res.json({ ...(await seedDemo(demoSeedOptions())), sandboxesDeleted });
 });

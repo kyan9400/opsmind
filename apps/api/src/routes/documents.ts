@@ -1,5 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
+import { config } from "../config.js";
 import { query } from "../lib/db.js";
 import { audit } from "../lib/audit.js";
 import { HttpError } from "../lib/errors.js";
@@ -46,6 +47,14 @@ documentsRouter.post("/", requireRole("member"), upload.single("file"), async (r
   if (!req.file) throw new HttpError(400, "file is required (multipart field 'file')");
   const { originalname, buffer, size } = req.file;
   const title = DocumentTitle.parse(req.body?.title || titleFromFilename(originalname));
+  if (req.user!.sandbox) {
+    const [{ n }] = await query<{ n: number }>("SELECT count(*)::int AS n FROM documents WHERE tenant_id = $1", [
+      req.user!.tenantId,
+    ]);
+    if (n >= config.SANDBOX_MAX_DOCUMENTS) {
+      throw new HttpError(403, `a temporary workspace holds at most ${config.SANDBOX_MAX_DOCUMENTS} documents`);
+    }
+  }
 
   const [doc] = await query<{ id: string }>(
     `INSERT INTO documents (tenant_id, title, filename, mime_type, size_bytes, content, created_by)
