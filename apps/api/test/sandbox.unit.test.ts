@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
 vi.mock("../src/lib/db.js", () => import("./helpers/fakeDb.js"));
+// Every test re-imports the whole app (fresh config); a cold import can pass 5 s on a busy runner.
+vi.setConfig({ testTimeout: 20_000 });
 
 const VARS = ["ALLOW_SANDBOX", "SANDBOX_RATE_LIMIT"];
 

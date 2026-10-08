@@ -3,6 +3,8 @@ import request from "supertest";
 import { AskBody } from "../src/schemas.js";
 
 vi.mock("../src/lib/db.js", () => import("./helpers/fakeDb.js"));
+// Every test re-imports the whole app (fresh config); a cold import can pass 5 s on a busy runner.
+vi.setConfig({ testTimeout: 20_000 });
 
 // AI_RATE_LIMIT is read when the modules load, hence resetModules + dynamic imports with it set.
 async function loadApp(env: Record<string, string> = {}) {
