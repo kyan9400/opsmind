@@ -229,9 +229,15 @@ def cited_numbers(answer: str, n_sources: int) -> set[int]:
     return {int(m) for m in re.findall(r"\[(\d+)\]", answer) if 1 <= int(m) <= n_sources}
 
 
-# What is left of a question that names no topic: "how long?", "what else?", "как долго?", "وكم؟".
+# What is left of a question that names no topic: "how long?", "what else?", "как долго?", "وكم؟",
+# "why is that?", "what about it?", "а что с этим?", "لماذا؟". Kept out of STOPWORDS, which also
+# shapes the full-text query.
 QUESTION_ONLY = frozenset(
-    "long often soon else more anything tell then долго часто скоро ещё еще подробнее كم".split()
+    """long often soon else more anything tell then that about too any some other again please just
+    only all not no did get us than very really
+    долго часто скоро ещё еще подробнее этом этим эту тот та те то с со про при тоже так тогда зачем
+    расскажи расскажите объясни объясните бы же вот да нет всё все только уже если чем чтобы нам вам
+    كم لماذا لم لما أيضا ايضا كذلك هناك حول بشأن بخصوص أي أكثر فقط نعم اشرح أخبرني""".split()
 )
 NON_TOPIC = STOPWORDS | BACK_REFERENCES | FOLLOW_UP_OPENERS | QUESTION_ONLY
 
@@ -240,9 +246,10 @@ def topic_words(text: str) -> set[str]:
     """The words that say what a question is about: no stopwords, back-references, connectors or
     question-only words.
 
-    Arabic joins "و" (and) to the next word, so "وماذا" and "ومتى" count as the stopwords they hold.
+    Arabic joins "و" (and) and "ف" (so) to the next word, so "وماذا", "ومتى" and "فماذا" count as the
+    stopwords they hold.
     """
-    return {w for w in tokenize(text) if w not in NON_TOPIC and not (w[0] == "و" and w[1:] in NON_TOPIC)}
+    return {w for w in tokenize(text) if w not in NON_TOPIC and not (w[0] in "وف" and w[1:] in NON_TOPIC)}
 
 
 def extractive_answer(
@@ -274,14 +281,17 @@ def extractive_answer(
 def answer_extractively(question: str, hits: list[Hit], query: str | None = None) -> str:
     """The extractive answer to the latest question; `query` is the combined retrieval query.
 
-    Sentences are matched against the new question's own topic words. Against the combined query,
-    the longer previous question outscores a short follow-up: "and for damaged items?" after a refund
-    question would get the refund sentence again. The combined query is used only when the new
-    question names no topic of its own ("why?", "а когда?", "ومتى؟").
+    Sentences are matched against the new question's own topic words first. Against the combined
+    query, the longer previous question outscores a short follow-up: "and for damaged items?" after a
+    refund question would get the refund sentence again. The combined query is used when the new
+    question matches nothing by itself: it names no topic ("why?", "а когда?", "ومتى؟"), or its
+    leftover words are ones the lists above miss. A word list alone must never turn a back-reference
+    follow-up into "not found".
     """
-    if query and not topic_words(question):
-        return extractive_answer(query, hits)
-    return extractive_answer(question, hits)
+    answer = extractive_answer(question, hits)
+    if answer == NO_ANSWER and query and query.strip() != question.strip():
+        answer = extractive_answer(query, hits)
+    return answer
 
 
 def generate_answer(

@@ -417,7 +417,61 @@ def test_follow_up_without_a_topic_of_its_own_uses_the_combined_query(previous, 
     assert expected in llm.generate_answer(question, SUPPORT_HITS, history, query)
 
 
+@pytest.mark.parametrize(
+    ("previous", "question", "expected"),
+    [
+        ("How many days do customers have to request a refund?", "Why is that?", "refund within 30 days"),
+        ("How many days do customers have to request a refund?", "What about it?", "refund within 30 days"),
+        ("How many days do customers have to request a refund?", "Tell me more about that.",
+         "refund within 30 days"),
+        ("How many days do customers have to request a refund?", "Does it apply to them too?",
+         "refund within 30 days"),
+        ("Сколько дней есть у клиентов на возврат денег после доставки?", "Расскажи подробнее об этом",
+         "30 дней на возврат"),
+        ("Сколько дней есть у клиентов на возврат денег после доставки?", "А что с этим?", "30 дней на возврат"),
+        ("كم يوما لدى العملاء لطلب استرداد المبلغ؟", "لماذا؟", "استرداد المبلغ خلال 30 يوما"),
+        ("كم يوما لدى العملاء لطلب استرداد المبلغ؟", "ولماذا؟", "استرداد المبلغ خلال 30 يوما"),
+        ("كم يوما لدى العملاء لطلب استرداد المبلغ؟", "فماذا عن ذلك؟", "استرداد المبلغ خلال 30 يوما"),
+    ],
+    ids=["en-why-is-that", "en-what-about-it", "en-tell-me-more", "en-apply-too", "ru-tell-more",
+         "ru-what-about-this", "ar-why", "ar-and-why", "ar-so-what-about-that"],
+)
+def test_back_reference_follow_ups_answer_about_the_previous_topic(previous, question, expected):
+    history = [llm.Turn(previous, "...")]
+    query = llm.build_retrieval_query(question, history)
+    answer = llm.generate_answer(question, SUPPORT_HITS, history, query)
+    assert expected in answer
+    assert llm.answer_extractively(question, SUPPORT_HITS, query) == answer
+
+
+@pytest.mark.parametrize(
+    ("previous", "question", "expected"),
+    [
+        ("How many days do customers have to request a refund?", "Is it strict?", "refund within 30 days"),
+        ("Сколько дней есть у клиентов на возврат денег после доставки?", "А это строго?", "30 дней на возврат"),
+        ("كم يوما لدى العملاء لطلب استرداد المبلغ؟", "هل هذا صارم؟", "استرداد المبلغ خلال 30 يوما"),
+    ],
+    ids=["en", "ru", "ar"],
+)
+def test_follow_up_whose_own_words_match_nothing_uses_the_combined_query(previous, question, expected):
+    # "strict" is a topic word, but no source has it: the question alone finds nothing.
+    history = [llm.Turn(previous, "...")]
+    query = llm.build_retrieval_query(question, history)
+    assert llm.topic_words(question) and llm.extractive_answer(question, SUPPORT_HITS) == llm.NO_ANSWER
+    assert expected in llm.generate_answer(question, SUPPORT_HITS, history, query)
+
+
+def test_a_standalone_question_that_matches_nothing_is_not_answered_from_elsewhere():
+    question = "What is the warranty on laptops?"
+    assert llm.answer_extractively(question, SUPPORT_HITS, question) == llm.NO_ANSWER
+    assert llm.answer_extractively(question, SUPPORT_HITS) == llm.NO_ANSWER
+
+
 def test_topic_words_drop_connectors_back_references_and_joined_arabic_and():
-    assert llm.topic_words("And does it apply to them too?") == {"apply", "too"}
+    assert llm.topic_words("And does it apply to them too?") == {"apply"}
+    assert llm.topic_words("Why is that?") == llm.topic_words("What about it?") == set()
     assert llm.topic_words("А это касается их подарочных карт?") == {"касается", "подарочных", "карт"}
+    assert llm.topic_words("А что с этим?") == llm.topic_words("Расскажи подробнее об этом") == set()
     assert llm.topic_words("وماذا عن وقت الشحن؟") == {"وقت", "الشحن"}  # "وقت" (time) keeps its و
+    assert llm.topic_words("لماذا؟") == llm.topic_words("فماذا عن ذلك؟") == set()
+    assert llm.topic_words("فندق") == {"فندق"}  # "hotel": its ف is part of the word
