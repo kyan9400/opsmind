@@ -1,23 +1,52 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { DemoLoginButton } from "@/components/DemoLoginButton";
+import { demoEnabled, DemoLoginButton } from "@/components/DemoLoginButton";
+import { IconAlert, IconArrowRight } from "@/components/icons";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { Logo } from "@/components/Logo";
 import { api, setToken } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW } from "@/lib/preview";
+
+/** Centered auth layout: logo above, card in the middle, a quiet way back home. */
+function AuthShell({ children }: { children: React.ReactNode }) {
+  const t = useT();
+  return (
+    <div className="relative flex min-h-screen flex-col">
+      {/* Soft brand glow behind the card; purely decorative. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-80 bg-[radial-gradient(60%_100%_at_50%_0%,var(--brand-soft),transparent)]"
+      />
+      <header className="flex items-center justify-between px-4 py-4 sm:px-6">
+        <Link href="/" className="btn btn-ghost btn-sm gap-1.5">
+          <IconArrowRight size={15} className="ltr:-scale-x-100" />
+          {t("login.backHome")}
+        </Link>
+        <LanguageSwitcher />
+      </header>
+      <main className="flex flex-1 flex-col items-center justify-center px-4 pb-16">
+        <Link href="/" className="mb-6 rounded-control" aria-label="OpsMind">
+          <Logo size={34} />
+        </Link>
+        <div className="card w-full max-w-[25rem] p-6 shadow-raised sm:p-8">{children}</div>
+      </main>
+    </div>
+  );
+}
 
 /** The static preview has one account, the read-only demo viewer: offer exactly that. */
 function PreviewSignIn() {
   const t = useT();
   return (
-    <main className="relative mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6">
-      <LanguageSwitcher className="absolute end-6 top-6" />
-      <h1 className="text-2xl font-semibold">{t("login.titleSignIn")}</h1>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t("preview.loginHint")}</p>
-      <DemoLoginButton className="mt-6 [&>button]:w-full" />
-    </main>
+    <AuthShell>
+      <h1 className="text-xl font-semibold tracking-tight text-fg">{t("login.titleSignIn")}</h1>
+      <p className="mt-2 text-sm text-fg-muted">{t("preview.loginHint")}</p>
+      <DemoLoginButton size="lg" className="mt-6 [&>button]:w-full" />
+    </AuthShell>
   );
 }
 
@@ -47,77 +76,120 @@ function AuthForm() {
     }
   }
 
-  const input =
-    "w-full rounded-lg border border-zinc-300 bg-transparent px-3 py-2 outline-none focus:border-indigo-500 dark:border-zinc-700";
-
   return (
-    <main className="relative mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6">
-      <LanguageSwitcher className="absolute end-6 top-6" />
-      <h1 className="text-2xl font-semibold">{mode === "login" ? t("login.titleSignIn") : t("login.titleRegister")}</h1>
-      <form onSubmit={onSubmit} className="mt-6 space-y-3" data-testid="login-form">
+    <AuthShell>
+      <h1 className="text-xl font-semibold tracking-tight text-fg">
+        {mode === "login" ? t("login.titleSignIn") : t("login.titleRegister")}
+      </h1>
+      <p className="mt-1.5 text-sm text-fg-muted">
+        {mode === "login" ? t("login.subtitleSignIn") : t("login.subtitleRegister")}
+      </p>
+
+      <form onSubmit={onSubmit} className="mt-6 space-y-4" data-testid="login-form">
         {mode === "register" && (
           <>
-            <input
-              name="tenantName"
-              placeholder={t("login.companyName")}
-              aria-label={t("login.companyName")}
-              required
-              data-testid="login-tenant"
-              className={input}
-            />
-            <input
-              name="name"
-              placeholder={t("login.yourName")}
-              aria-label={t("login.yourName")}
-              required
-              data-testid="login-name"
-              className={input}
-            />
+            <div>
+              <label htmlFor="tenantName" className="label">
+                {t("login.companyName")}
+              </label>
+              <input
+                id="tenantName"
+                name="tenantName"
+                aria-label={t("login.companyName")}
+                autoComplete="organization"
+                required
+                data-testid="login-tenant"
+                className="input"
+              />
+            </div>
+            <div>
+              <label htmlFor="name" className="label">
+                {t("login.yourName")}
+              </label>
+              <input
+                id="name"
+                name="name"
+                aria-label={t("login.yourName")}
+                autoComplete="name"
+                required
+                data-testid="login-name"
+                className="input"
+              />
+            </div>
           </>
         )}
-        <input
-          name="email"
-          type="email"
-          placeholder={t("login.email")}
-          aria-label={t("login.email")}
-          autoComplete="email"
-          required
-          data-testid="login-email"
-          className={input}
-        />
-        <input
-          name="password"
-          type="password"
-          placeholder={t("login.password")}
-          aria-label={t("login.password")}
-          autoComplete={mode === "login" ? "current-password" : "new-password"}
-          minLength={mode === "register" ? 8 : undefined}
-          required
-          data-testid="login-password"
-          className={input}
-        />
+        <div>
+          <label htmlFor="email" className="label">
+            {t("login.email")}
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            placeholder="name@company.com"
+            aria-label={t("login.email")}
+            autoComplete="email"
+            required
+            data-testid="login-email"
+            className="input"
+            dir="ltr"
+          />
+        </div>
+        <div>
+          <label htmlFor="password" className="label">
+            {t("login.password")}
+          </label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            aria-label={t("login.password")}
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            minLength={mode === "register" ? 8 : undefined}
+            required
+            data-testid="login-password"
+            className="input"
+          />
+        </div>
         {error && (
-          <p role="alert" data-testid="login-error" className="text-sm text-red-600">
-            {error}
+          <p
+            role="alert"
+            data-testid="login-error"
+            className="flex items-start gap-2 rounded-control bg-danger-soft px-3 py-2 text-sm text-danger-text"
+          >
+            <IconAlert size={16} className="mt-0.5" />
+            <span>{error}</span>
           </p>
         )}
-        <button
-          disabled={busy}
-          data-testid="login-submit"
-          className="w-full rounded-lg bg-indigo-600 py-2 text-white hover:bg-indigo-500 disabled:opacity-60"
-        >
+        <button disabled={busy} data-testid="login-submit" className="btn btn-primary h-10 w-full">
           {busy ? "…" : mode === "login" ? t("login.submitSignIn") : t("login.submitRegister")}
         </button>
       </form>
+
       <button
+        type="button"
         onClick={() => setMode(mode === "login" ? "register" : "login")}
         data-testid="login-toggle-mode"
-        className="mt-4 text-sm text-zinc-600 hover:underline dark:text-zinc-400"
+        className="mt-4 w-full cursor-pointer text-center text-sm font-medium text-brand-text hover:underline"
       >
         {mode === "login" ? t("login.toRegister") : t("login.toSignIn")}
       </button>
-      <DemoLoginButton className="mt-6 border-t border-zinc-200 pt-6 dark:border-zinc-800 [&>button]:w-full" />
-    </main>
+
+      {demoEnabled && (
+        <>
+          <div className="my-6 flex items-center gap-3 text-xs text-fg-subtle" aria-hidden>
+            <span className="h-px flex-1 bg-line" />
+            {t("login.or")}
+            <span className="h-px flex-1 bg-line" />
+          </div>
+          <div className="rounded-control border border-brand-line bg-brand-soft p-4">
+            <p className="text-sm font-semibold text-fg">{t("login.demoTitle")}</p>
+            <p className="mt-1 text-sm text-fg-muted">{t("login.demoBody")}</p>
+            <DemoLoginButton variant="primary" className="mt-3 [&>button]:w-full" />
+          </div>
+        </>
+      )}
+    </AuthShell>
   );
 }
 

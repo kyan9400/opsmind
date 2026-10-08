@@ -188,4 +188,59 @@ export const en = {
   "chart.weekOf": "Week of {date}",
   "chart.markerBad": "⚠ Needs attention: {delta} vs expected {expected}",
   "chart.markerGood": "✓ Unusual, positive: {delta} vs expected {expected}",
+
+  // Landing page, login card and app shell.
+  "landing.eyebrow": "Open source · Multi-tenant · AI-native",
+  "landing.subline":
+    "KPI dashboards that flag unusual movements, and answers from your company documents with the sources attached — in one secure, multi-tenant workspace.",
+  "landing.navFeatures": "Features",
+  "landing.navHowItWorks": "How it works",
+  "landing.viewSource": "View on GitHub",
+  "landing.featuresTitle": "Everything an operations team needs, in one place",
+  "landing.featuresSubtitle": "From raw metrics and scattered documents to answers you can trust.",
+  "landing.feature4.title": "Three languages, RTL-ready",
+  "landing.feature4.body":
+    "The whole interface speaks English, Russian and Arabic, with a mirrored right-to-left layout.",
+  "landing.howTitle": "How it works",
+  "landing.step1.title": "Bring your data",
+  "landing.step1.body": "Import KPI history from a CSV file and upload PDF, text or Markdown documents.",
+  "landing.step2.title": "OpsMind analyses it",
+  "landing.step2.body": "Documents are chunked, embedded and indexed; metrics are scanned for unusual movements.",
+  "landing.step3.title": "Ask and act",
+  "landing.step3.body": "Get cited answers, plain-language insights and one-click Excel or PDF reports.",
+  "landing.techTitle": "Built with",
+  "landing.footerNote": "OpsMind is an open-source portfolio project.",
+  "landing.mock.revenue": "Revenue",
+  "landing.mock.orders": "Orders",
+  "landing.mock.satisfaction": "Customer satisfaction",
+  "landing.mock.insight": "Orders were 41% above expected last Tuesday — worth a look.",
+
+  "login.subtitleSignIn": "Welcome back. Sign in to your workspace.",
+  "login.subtitleRegister": "Set up a workspace for your team in under a minute.",
+  "login.or": "or",
+  "login.demoTitle": "Just looking around?",
+  "login.demoBody": "Open a read-only workspace with sample data. No account needed.",
+  "login.backHome": "Back to home",
+
+  "nav.openMenu": "Open menu",
+  "nav.closeMenu": "Close menu",
+  "nav.workspace": "Workspace",
+
+  "overview.subtitle": "Your workspace at a glance.",
+  "overview.shortcuts": "Jump to",
+  "overview.inviteTitle": "Add a teammate",
+  "overview.noActivity": "No activity yet.",
+
+  "analytics.severity.high": "High",
+  "analytics.severity.medium": "Medium",
+  "analytics.export": "Export",
+
+  "docs.uploadTitle": "Add a document",
+  "docs.formats": "PDF, TXT or Markdown",
+  "docs.emptyHint": "Uploaded files appear here and are ready for questions once indexed.",
+
+  "ask.you": "You",
+  "ask.answer": "Answer",
+  "ask.tryExample": "Try an example",
+  "ask.cited": "Cited",
 } satisfies Record<string, string | PluralForms>;
