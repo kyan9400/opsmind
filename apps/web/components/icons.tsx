@@ -107,6 +107,14 @@ export const IconSearch = make(
     <path d="m21 21-4.3-4.3" />
   </>,
 );
+export const IconCopy = make(
+  <>
+    <rect x="9" y="9" width="12" height="12" rx="2" />
+    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+  </>,
+);
+export const IconCheck = make(<path d="M20 6 9 17l-5-5" />);
+export const IconPlus = make(<path d="M12 5v14M5 12h14" />);
 export const IconArrowRight = make(<path d="M5 12h14m-6-6 6 6-6 6" />);
 export const IconArrowUp = make(<path d="M12 19V5m-6 6 6-6 6 6" />);
 export const IconArrowDown = make(<path d="M12 5v14m6-6-6 6-6-6" />);
