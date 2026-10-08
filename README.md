@@ -305,7 +305,7 @@ docker compose exec -e DEMO_EMAIL=demo@opsmind.dev -e DEMO_PASSWORD='choose-one'
 
 ## Try it with your own data
 
-The demo workspace is read-only and shared. **Try it with your own data** (landing and login pages) gives a visitor a private **sandbox workspace** instead: the same 180 days of KPIs and four sample documents, but the visitor is its owner, so they can upload their own files, import a CSV and ask about them. It is deleted after 24 hours, and every dashboard page says how long it has left.
+The demo workspace is read-only and shared. **Try it with your own data** (landing and login pages) gives a visitor a private **sandbox workspace** instead: the same 180 days of KPIs and four sample documents, but the visitor is its owner, so they can upload their own files, import a CSV and ask about them. Access ends after 24 hours (every dashboard page says how long it has left), and the data is deleted soon after, at the latest about a day later.
 
 - `POST /api/v1/sandbox` creates the workspace, an owner with an unguessable `@sandbox.invalid` address and a random password nobody knows, and returns `{ token, expiresAt }`. The token is the only way in.
 - It answers right away; the sample documents are indexed in the background (the worker, or the API process with `INGEST_MODE=inline`), and the Documents page shows them becoming ready. Waiting would put a cold AI service and its retries inside the 300-second Vercel limit for nothing.
