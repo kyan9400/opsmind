@@ -15,6 +15,7 @@ import {
 } from "@/components/icons";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Logo } from "@/components/Logo";
+import { SandboxBanner } from "@/components/SandboxBanner";
 import { api, clearToken, type Me } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 
@@ -163,6 +164,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
           <LanguageSwitcher className="ms-auto" />
         </header>
+        {me?.expiresAt && <SandboxBanner expiresAt={me.expiresAt} />}
         {children}
       </div>
     </div>

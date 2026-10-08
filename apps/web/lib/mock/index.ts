@@ -93,7 +93,7 @@ export async function mockApi<T>(path: string, init: RequestInit, token: string 
     }
     fail(401, t("preview.demoOnly"));
   }
-  if (route === "/auth/register") fail(403, t("preview.readOnly"));
+  if (route === "/auth/register" || route === "/sandbox") fail(403, t("preview.readOnly"));
   // As on the real API, everything else needs a session.
   if (token !== PREVIEW_TOKEN) fail(401, "missing bearer token");
   if (method === "POST" && route === "/ask") return ask(parseBody(init.body).question) as T;
