@@ -27,6 +27,33 @@ test.describe("answer Markdown", () => {
     ]);
   });
 
+  test("bold italics, whichever way the runs close", () => {
+    const text = (t: string) => ({ type: "text", text: t });
+    const blocks = parseMarkdown("***Important:*** read this [1].");
+    expect(blocks).toEqual([
+      {
+        type: "paragraph",
+        children: [
+          { type: "strong", children: [{ type: "em", children: [text("Important:")] }] },
+          text(" read this "),
+          { type: "cite", n: 1 },
+          text("."),
+        ],
+      },
+    ]);
+    expect(plainText(blocks)).toBe("Important: read this [1].");
+    expect(parseInline("___both___")).toEqual([{ type: "strong", children: [{ type: "em", children: [text("both")] }] }]);
+    expect(parseInline("***a** b*")).toEqual([
+      { type: "em", children: [{ type: "strong", children: [text("a")] }, text(" b")] },
+    ]);
+    expect(parseInline("***a* b**")).toEqual([
+      { type: "strong", children: [{ type: "em", children: [text("a")] }, text(" b")] },
+    ]);
+    // Only part of the run closes: the rest stays literal.
+    expect(parseInline("***a*")).toEqual([text("**"), { type: "em", children: [text("a")] }]);
+    expect(parseInline("a *** b")).toEqual([text("a *** b")]);
+  });
+
   test("leaves text that only looks like Markdown alone", () => {
     const literal = (s: string) => expect(parseInline(s)).toEqual([{ type: "text", text: s }]);
     literal("2 * 3 * 4 = 24");

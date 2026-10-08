@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type pg from "pg";
 import request from "supertest";
 
 vi.mock("../src/lib/db.js", () => import("./helpers/fakeDb.js"));
@@ -12,6 +13,7 @@ const VARS = [
   "SANDBOX_RATE_LIMIT",
   "SANDBOX_MAX_FILE_BYTES",
   "SANDBOX_WRITE_RATE_LIMIT",
+  "SANDBOX_GLOBAL_WRITE_RATE_LIMIT",
   "SANDBOX_DB_BRAKE_BYTES",
   "SANDBOX_MAX_BYTES",
   "SANDBOX_MAX_ACTIVE",
@@ -113,6 +115,58 @@ describe("sandbox write budget (in memory)", () => {
   });
 });
 
+describe("sandbox write budgets (database)", () => {
+  async function load(env: Record<string, string>) {
+    vi.resetModules();
+    Object.assign(process.env, env);
+    return import("../src/lib/sandboxLimits.js");
+  }
+
+  /** A transaction that records its SQL and answers the two write counts. */
+  function fakeTx(sandboxWrites: number, allSandboxWrites: number) {
+    const sql: string[] = [];
+    const query = vi.fn(async (text: string) => {
+      sql.push(text.replace(/\s+/g, " ").trim());
+      if (/JOIN audit_log/.test(text)) return { rows: [{ n: allSandboxWrites }] };
+      if (/FROM audit_log/.test(text)) return { rows: [{ n: sandboxWrites }] };
+      return { rows: [], rowCount: 1 };
+    });
+    return { tx: { query } as unknown as pg.PoolClient, sql };
+  }
+
+  it("refuses with 503 once all sandboxes together made SANDBOX_GLOBAL_WRITE_RATE_LIMIT writes this hour", async () => {
+    const { reserveSandboxWrite } = await load({ SANDBOX_WRITE_RATE_LIMIT: "20", SANDBOX_GLOBAL_WRITE_RATE_LIMIT: "30" });
+
+    const room = fakeTx(0, 29);
+    await reserveSandboxWrite(room.tx, "sb1");
+    // Tenant row, its own count, then the advisory lock that makes the all-sandboxes count exact.
+    expect(room.sql).toEqual([
+      "SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE",
+      expect.stringMatching(/FROM audit_log WHERE tenant_id = \$1 /),
+      "SELECT pg_advisory_xact_lock($1)",
+      expect.stringMatching(/JOIN audit_log a ON a\.tenant_id = t\.id WHERE t\.expires_at IS NOT NULL /),
+    ]);
+
+    await expect(reserveSandboxWrite(fakeTx(0, 30).tx, "sb1")).rejects.toMatchObject({
+      status: 503,
+      message: "temporary workspaces have reached their uploads and imports for this hour, try again later",
+    });
+  });
+
+  it("checks the sandbox's own budget first, and skips a budget set to 0", async () => {
+    const limits = await load({ SANDBOX_WRITE_RATE_LIMIT: "2", SANDBOX_GLOBAL_WRITE_RATE_LIMIT: "30" });
+    const own = fakeTx(2, 30);
+    await expect(limits.reserveSandboxWrite(own.tx, "sb1")).rejects.toMatchObject({ status: 429 });
+    expect(own.sql.some((q) => /advisory/.test(q))).toBe(false);
+
+    const off = await load({ SANDBOX_WRITE_RATE_LIMIT: "0", SANDBOX_GLOBAL_WRITE_RATE_LIMIT: "0" });
+    const free = fakeTx(1000, 1000);
+    await off.reserveSandboxWrite(free.tx, "sb1");
+    // The tenant lock stays: the document and KPI budgets that follow rely on it.
+    expect(free.sql).toEqual(["SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE"]);
+  });
+});
+
 describe("database brake", () => {
   it("answers 503 to sandbox writes and creation while the database is over SANDBOX_DB_BRAKE_BYTES", async () => {
     const { app, db, sandboxOwner, owner } = await loadApp(
@@ -129,7 +183,7 @@ describe("database brake", () => {
     }
     const created = await request(app).post("/api/v1/sandbox").expect(503);
     expect(created.body.error).toMatch(/nearly full/);
-    // Before refusing, the creation still deleted a batch of expired sandboxes: that is what frees space.
+    // Before refusing, the creation still deleted a batch of expired sandboxes, whose space new rows reuse.
     expect(purged).toEqual([[10]]);
 
     // Reads and normal workspaces are not affected (no file: 400 from the handler, after the guard).
@@ -189,6 +243,7 @@ describe("sandbox settings", () => {
       SANDBOX_MAX_FILE_BYTES: 512 * 1024,
       SANDBOX_MAX_CSV_ROWS: 5000,
       SANDBOX_WRITE_RATE_LIMIT: 20,
+      SANDBOX_GLOBAL_WRITE_RATE_LIMIT: 30,
       SANDBOX_DB_BRAKE_BYTES: 350 * MB,
     });
   });

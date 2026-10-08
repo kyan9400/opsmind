@@ -29,6 +29,9 @@ import { countWords, parseMarkdown, plainText, takeWords, type Block, type Inlin
 import { PREVIEW } from "@/lib/preview";
 
 const EXAMPLES = ["ask.example1", "ask.example2", "ask.example3"] as const;
+// How long an announcement stays in the live region. Screen readers queue the text when it changes, so
+// emptying it later does not cut the reading short; the common 7 s (as in React Aria) leaves slow ones time.
+const ANNOUNCE_MS = 7000;
 
 interface Turn {
   id: string;
@@ -387,6 +390,14 @@ export default function AskPage() {
   useEffect(() => {
     if (restored) saveThread(turns);
   }, [turns, restored]);
+
+  // Emptied once read out: left in place, a browse-mode screen-reader user would meet the whole answer a
+  // second time below the thread. Removing text from a live region is not announced.
+  useEffect(() => {
+    if (!announcement) return;
+    const id = setTimeout(() => setAnnouncement(""), ANNOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [announcement]);
 
   // While waiting, keep the question and the skeleton below it in view.
   useEffect(() => {

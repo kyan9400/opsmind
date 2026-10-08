@@ -52,6 +52,33 @@ function findClose(src: string, from: number, delim: string): number {
   return -1;
 }
 
+/** The emphasis opened by the run of "*" or "_" at `i`, and the index just past its closing run. */
+function emphasisAt(src: string, i: number): { node: Inline; next: number } | null {
+  const c = src[i];
+  const run = src[i + 1] !== c ? 1 : src[i + 2] !== c ? 2 : 3;
+  // Opens only before a non-space, and "_" never inside a word (snake_case).
+  if (isSpace(src[i + run]) || (c === "_" && LETTER_OR_DIGIT.test(src[i - 1] ?? ""))) return null;
+  if (run === 3) {
+    // Models write ***Note:*** for bold italics.
+    const both = findClose(src, i + 3, c + c + c);
+    if (both !== -1) {
+      const children = parseInline(src.slice(i + 3, both));
+      return { node: { type: "strong", children: [{ type: "em", children }] }, next: both + 3 };
+    }
+    // ***a** b*: the bold closes first, so the italic is the outer one (***a* b** works as bold below).
+    const single = findClose(src, i + 3, c);
+    const double = findClose(src, i + 3, c + c);
+    if (single !== -1 && double !== -1 && double < single) {
+      return { node: { type: "em", children: parseInline(src.slice(i + 1, single)) }, next: single + 1 };
+    }
+  }
+  const len = Math.min(run, 2);
+  const close = findClose(src, i + len, c.repeat(len));
+  if (close === -1) return null;
+  const children = parseInline(src.slice(i + len, close));
+  return { node: len === 2 ? { type: "strong", children } : { type: "em", children }, next: close + len };
+}
+
 export function parseInline(src: string): Inline[] {
   const out: Inline[] = [];
   let text = "";
@@ -90,18 +117,16 @@ export function parseInline(src: string): Inline[] {
       }
     }
     if (c === "*" || c === "_") {
-      const delim = src[i + 1] === c ? c + c : c;
-      const opens =
-        !isSpace(src[i + delim.length]) && !(c === "_" && LETTER_OR_DIGIT.test(src[i - 1] ?? ""));
-      const close = opens ? findClose(src, i + delim.length, delim) : -1;
-      if (close !== -1) {
+      const emphasis = emphasisAt(src, i);
+      if (emphasis) {
         flush();
-        const children = parseInline(src.slice(i + delim.length, close));
-        out.push(delim.length === 2 ? { type: "strong", children } : { type: "em", children });
-        i = close + delim.length - 1;
+        out.push(emphasis.node);
+        i = emphasis.next - 1;
         continue;
       }
-      text += delim; // unmatched: keep the characters as typed
+      // Unmatched: keep the characters as typed. At most two at a time, so the rest of a run can still open.
+      const delim = src[i + 1] === c ? c + c : c;
+      text += delim;
       i += delim.length - 1;
       continue;
     }

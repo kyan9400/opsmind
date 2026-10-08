@@ -36,6 +36,7 @@ services:
       ALLOW_SANDBOX: ${ALLOW_SANDBOX:-false}
       SANDBOX_RATE_LIMIT: ${SANDBOX_RATE_LIMIT:-3} # sandbox creations per IP per hour; 0 disables (browser tests)
       SANDBOX_WRITE_RATE_LIMIT: ${SANDBOX_WRITE_RATE_LIMIT:-20} # uploads/imports per sandbox per hour; 0 disables
+      SANDBOX_GLOBAL_WRITE_RATE_LIMIT: ${SANDBOX_GLOBAL_WRITE_RATE_LIMIT:-30} # the same, all sandboxes together; 0 disables
       REDIS_URL: redis://redis:6379
       AI_SERVICE_URL: http://ai:8000
     ports: ["4000:4000"]

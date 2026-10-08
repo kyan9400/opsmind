@@ -48,7 +48,8 @@ export const aiRateLimit: RequestHandler = (req, res, next) =>
  * Uploads, re-indexes, CSV imports and demo loads by sandbox members: SANDBOX_WRITE_RATE_LIMIT per
  * sandbox per hour. Each of them runs extraction and embedding on the host's small CPU quota, or writes
  * rows into the free database, and the sandbox owner is an anonymous visitor. In memory, so per
- * instance; reserveSandboxWrite() repeats the count in the database inside the write's transaction.
+ * instance; reserveSandboxWrite() repeats the count in the database inside the write's transaction and
+ * adds the cap for all sandboxes together (SANDBOX_GLOBAL_WRITE_RATE_LIMIT).
  * Mount it after requireAuth and before any body parsing, so a refused request is never read.
  */
 const sandboxWrites = rateLimit({

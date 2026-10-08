@@ -160,7 +160,11 @@ async function smoke() {
     check((await page.locator("main").innerText()).includes("recorded answer"), "the answer is labelled as recorded");
     await byId("ask-input").fill("What will the weather be on Mars tomorrow?");
     await byId("ask-submit").click();
-    await page.getByText("answers only the example questions").waitFor();
+    // Scoped to the finished answer: the screen-reader live region (and, while typing, a hidden full copy)
+    // holds the same text, so a page-wide getByText would match several elements and fail strict mode.
+    await page
+      .locator('[data-testid="ask-answer"][data-typing="done"]', { hasText: "answers only the example questions" })
+      .waitFor();
     check(true, "a free-form question gets the labelled preview message");
 
     // Most visitors read Russian: its examples must answer too, not replay a failure.

@@ -33,8 +33,9 @@ const SANDBOX_LOCK_ID = 7_274_003;
 export const sandboxOwnerEmail = () => `sandbox+${randomBytes(16).toString("hex")}@sandbox.invalid`;
 
 export async function createSandbox(): Promise<{ token: string; expiresAt: string }> {
-  // Free the space of expired sandboxes now rather than at the next daily cron (up to a day later). Before
-  // the brake, which this can help, and outside the transaction below, so a refused creation keeps it.
+  // Delete expired sandboxes now rather than at the next daily cron (up to a day later), so new rows reuse
+  // their space. That does not release a tripped brake: pg_database_size only drops after a VACUUM FULL.
+  // Outside the transaction below, so a creation the brake or the cap refuses still keeps the cleanup.
   await deleteExpiredSandboxes(SANDBOX_PURGE_BATCH).catch((err: Error) =>
     console.error(JSON.stringify({ msg: "expired sandbox cleanup failed", error: err.message })),
   );

@@ -15,12 +15,18 @@ const run = process.env.INTEGRATION === "1" ? describe : describe.skip;
 run("sandbox workspaces (postgres)", () => {
   const app = createApp();
   const saved = { ...config };
-  // This file creates more sandboxes than the default SANDBOX_MAX_ACTIVE.
+  // This file creates more sandboxes than the default SANDBOX_MAX_ACTIVE, and makes more sandbox writes than
+  // the default SANDBOX_GLOBAL_WRITE_RATE_LIMIT (one test turns that on).
   const MAX_ACTIVE = 1000;
 
   beforeAll(() => {
     // The sandbox routes read these per request, so the switches can be flipped without reloading the app.
-    Object.assign(config, { ALLOW_SANDBOX: true, SANDBOX_RATE_LIMIT: 0, SANDBOX_MAX_ACTIVE: MAX_ACTIVE });
+    Object.assign(config, {
+      ALLOW_SANDBOX: true,
+      SANDBOX_RATE_LIMIT: 0,
+      SANDBOX_MAX_ACTIVE: MAX_ACTIVE,
+      SANDBOX_GLOBAL_WRITE_RATE_LIMIT: 0,
+    });
   });
 
   /** Runs `fn` with some settings changed, and puts them back even when it fails. */
@@ -225,23 +231,102 @@ run("sandbox workspaces (postgres)", () => {
     expect(await points()).toBe(held + 6);
   });
 
-  it("counts a sandbox's writes of the last hour in the database, so the budget holds across instances", async () => {
+  const demoLoad = (auth: string) => request(app).post("/api/v1/metrics/demo").set("authorization", auth);
+
+  it("counts every kind of sandbox write of the last hour in the database, so the budget holds across instances", async () => {
     const { auth, me } = await createSandbox();
-    // Three writes another instance served: this instance's in-memory counter never saw them.
+    // Five writes another instance served (one of each kind, and a second upload): this instance's
+    // in-memory counter never saw them.
     await pool.query(
       `INSERT INTO audit_log (tenant_id, actor_id, action, created_at)
        SELECT $1, $2, action, now() - interval '5 minutes' FROM unnest($3::text[]) AS action`,
-      [me.tenantId, me.id, SANDBOX_WRITE_ACTIONS.slice(0, 3)],
+      [me.tenantId, me.id, [...SANDBOX_WRITE_ACTIONS, "document.uploaded"]],
     );
-    await withSettings({ SANDBOX_WRITE_RATE_LIMIT: 3 }, async () => {
-      const res = await upload(auth, "one more").expect(429);
-      expect(res.body.error).toBe("a temporary workspace allows 3 uploads and imports per hour, try again later");
+    const {
+      rows: [failed],
+    } = await pool.query<{ id: string }>(
+      `UPDATE documents SET status = 'failed', error = 'boom'
+        WHERE id = (SELECT id FROM documents WHERE tenant_id = $1 ORDER BY title LIMIT 1) RETURNING id`,
+      [me.tenantId],
+    );
+    await withSettings({ SANDBOX_WRITE_RATE_LIMIT: 5 }, async () => {
+      // In memory each of these is only the 1st to 4th of 5; the count in the database refuses them.
+      const attempts = [
+        () => upload(auth, "one more"),
+        () => importCsv(auth, ["2020-01-01,Visitors,1"]),
+        () => request(app).post(`/api/v1/documents/${failed.id}/reindex`).set("authorization", auth),
+        () => demoLoad(auth),
+      ];
+      for (const attempt of attempts) {
+        const res = await attempt();
+        expect([res.status, res.body.error]).toEqual([
+          429,
+          "a temporary workspace allows 5 uploads and imports per hour, try again later",
+        ]);
+      }
       // An hour later they no longer count.
       await pool.query("UPDATE audit_log SET created_at = now() - interval '61 minutes' WHERE tenant_id = $1", [
         me.tenantId,
       ]);
       await upload(auth, "one more").expect(202);
     });
+  });
+
+  it("caps the writes of all sandboxes together per hour, also when they arrive at once", async () => {
+    const sandboxes = await Promise.all(Array.from({ length: 4 }, () => createSandbox()));
+    const allWrites = () =>
+      one(
+        `SELECT count(*)::int AS n FROM tenants t JOIN audit_log a ON a.tenant_id = t.id
+          WHERE t.expires_at IS NOT NULL AND a.action = ANY($1::text[]) AND a.created_at > now() - interval '1 hour'`,
+        [SANDBOX_WRITE_ACTIONS],
+      );
+    const refused = "temporary workspaces have reached their uploads and imports for this hour, try again later";
+
+    // Room for two more writes: two sandboxes use them, a third is refused although it made none.
+    await withSettings({ SANDBOX_GLOBAL_WRITE_RATE_LIMIT: (await allWrites()) + 2 }, async () => {
+      await upload(sandboxes[0].auth, "first").expect(202);
+      await importCsv(sandboxes[1].auth, ["2020-01-01,Visitors,1"]).expect(201);
+      const res = await upload(sandboxes[2].auth, "third").expect(503);
+      expect(res.body.error).toBe(refused);
+      expect((await demoLoad(sandboxes[3].auth).expect(503)).body.error).toBe(refused);
+    });
+
+    // Four sandboxes at once with room for two: the advisory lock makes them take turns.
+    await withSettings({ SANDBOX_GLOBAL_WRITE_RATE_LIMIT: (await allWrites()) + 2 }, async () => {
+      const results = await Promise.all(sandboxes.map((s, i) => upload(s.auth, `parallel ${i}`)));
+      expect(statuses(results)).toEqual([202, 202, 503, 503]);
+    });
+  });
+
+  it("loads the demo KPIs into a sandbox only within its point budget", async () => {
+    const { auth, me } = await createSandbox();
+    const points = () => one("SELECT count(*)::int AS n FROM metric_points WHERE tenant_id = $1", [me.tenantId]);
+    // The samples are this same demo data, so reloading it adds no point and fits even a full budget.
+    const held = await points();
+    await withSettings({ SANDBOX_MAX_CSV_ROWS: held }, async () => {
+      const res = await demoLoad(auth).expect(201);
+      expect(res.body.imported).toEqual({ metrics: 6, points: held });
+    });
+
+    // Without one metric's points, a reload adds exactly those back (demo points are matched by metric key).
+    const deleted = await pool.query(
+      "DELETE FROM metric_points WHERE metric_id = (SELECT id FROM metrics WHERE tenant_id = $1 ORDER BY key LIMIT 1)",
+      [me.tenantId],
+    );
+    const removed = deleted.rowCount ?? 0;
+    expect(removed).toBeGreaterThan(0);
+    await withSettings({ SANDBOX_MAX_CSV_ROWS: held - 1 }, async () => {
+      const over = await demoLoad(auth).expect(413);
+      expect(over.body.error).toBe(
+        `a temporary workspace holds at most ${held - 1} KPI data points ` +
+          `(it has ${held - removed}, this import would add ${removed})`,
+      );
+    });
+    expect(await points()).toBe(held - removed);
+    await withSettings({ SANDBOX_MAX_CSV_ROWS: held }, async () => {
+      await demoLoad(auth).expect(201);
+    });
+    expect(await points()).toBe(held);
   });
 
   it("re-indexes only failed or stuck documents in a sandbox; a normal workspace may re-index any", async () => {
