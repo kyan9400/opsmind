@@ -21,7 +21,7 @@ from .db import get_pool
 from .embeddings import embed_batched, get_embedder
 from .extract import extract_text
 from .insights import KpiDelta, NamedAnomaly, summarize
-from .llm import cited_numbers, generate_answer
+from .llm import Turn, answer_with_fallback, build_retrieval_query, cited_numbers
 from .retrieval import hybrid_search
 from .telemetry import ANOMALIES, EMBED_DURATION, metrics_middleware, metrics_response, setup_tracing, timed
 
@@ -109,10 +109,17 @@ def ingest(req: IngestRequest) -> dict:
     }
 
 
+class HistoryTurn(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    answer: str = Field(max_length=2000)
+
+
 class AskRequest(BaseModel):
     tenant_id: uuid.UUID
     question: str = Field(min_length=1, max_length=500)
     top_k: int = Field(default=5, ge=1, le=10)
+    # Oldest first. Bounded so a long chat cannot blow up the prompt (and free-tier token budgets).
+    history: list[HistoryTurn] = Field(default_factory=list, max_length=4)
 
 
 class Citation(BaseModel):
@@ -129,22 +136,21 @@ class AskResponse(BaseModel):
     answer: str
     citations: list[Citation]
     provider: str
+    retrieval_query: str
     ms: int
 
 
 @app.post("/v1/ask", response_model=AskResponse, dependencies=[Depends(internal_auth)])
 def ask(req: AskRequest) -> AskResponse:
     started = time.perf_counter()
+    history = [Turn(t.question, t.answer) for t in req.history]
+    query = build_retrieval_query(req.question, history)
     with timed(EMBED_DURATION, provider=settings.embed_provider):
-        [qvec] = get_embedder().embed([req.question])
+        [qvec] = get_embedder().embed([query])
     with get_pool().connection() as conn:
-        hits = hybrid_search(conn, str(req.tenant_id), req.question, qvec, req.top_k)
+        hits = hybrid_search(conn, str(req.tenant_id), query, qvec, req.top_k)
 
-    try:
-        answer = generate_answer(req.question, hits)
-    except Exception as exc:
-        log.exception("llm provider failed")
-        raise HTTPException(status_code=502, detail=f"llm provider error: {exc}") from exc
+    answer, provider = answer_with_fallback(req.question, hits, history, query)
 
     used = cited_numbers(answer, len(hits))
     return AskResponse(
@@ -161,7 +167,8 @@ def ask(req: AskRequest) -> AskResponse:
             )
             for i, h in enumerate(hits, 1)
         ],
-        provider=settings.llm_provider,
+        provider=provider,
+        retrieval_query=query,
         ms=round((time.perf_counter() - started) * 1000),
     )
 

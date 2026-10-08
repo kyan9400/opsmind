@@ -218,6 +218,32 @@ Also test from a Russian home network, from mobile internet without VPN, and fro
 Check the daily job: in the api project open **Settings → Cron Jobs**. You see
 `/api/internal/cron/seed`, once a day around 03:00 UTC. **View Logs** shows each run.
 
+## Optional: real LLM answers (free tier, for example Groq)
+
+Without this step the demo answers with `extractive` mode: the best-matching source sentences, cited.
+To let a model write the answers, use any OpenAI-compatible endpoint. Groq, OpenRouter and Together all
+have free tiers.
+
+1. Create an API key with your provider (Groq: <https://console.groq.com/keys>). Save it in your notes.
+2. In Vercel open the **ai** project (`opsmind-ai`) → **Settings → Environment Variables** and add:
+
+   | Name | Value (Groq example) | Notes |
+   | --- | --- | --- |
+   | `LLM_PROVIDER` | `openai-compatible` | |
+   | `LLM_BASE_URL` | `https://api.groq.com/openai/v1` | the part before `/chat/completions` |
+   | `LLM_API_KEY` | your key | secret |
+   | `LLM_MODEL` | a chat model your provider lists, e.g. `llama-3.1-8b-instant` | |
+   | `LLM_TIMEOUT_S` | `30` | optional, seconds; this is the default |
+   | `LLM_MAX_TOKENS` | `400` | optional, answer length limit; this is the default |
+
+   **The key goes only into the ai project.** The api and web projects never call the model and must not
+   get `LLM_API_KEY`. Never commit the key or paste it into an issue or chat.
+3. **Redeploy** the ai project. `AI_URL/health` now shows `"llm":"openai-compatible"`.
+
+If the provider fails, times out or hits its free-tier rate limit, the question still gets an answer: the
+ai service falls back to the extractive answer and reports `"provider": "extractive-fallback"`. The
+analytics summary falls back to its template the same way. So a used-up free quota never breaks the demo.
+
 ## Everyday use
 
 - Every push to `main` redeploys all three projects automatically. To save builds, in each project open

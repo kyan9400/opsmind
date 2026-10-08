@@ -1,0 +1,228 @@
+"""OpenAI-compatible provider, extractive fallback and conversation follow-ups. No network: httpx is mocked."""
+
+import json
+from contextlib import contextmanager
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+import app.insights as insights
+import app.llm as llm
+import app.main as main
+from app.config import Settings
+from app.retrieval import Hit
+
+HEADERS = {"x-internal-token": main.settings.internal_token}
+TENANT = "00000000-0000-0000-0000-000000000001"
+
+HITS = [
+    Hit(chunk_id=1, document_id="d1", title="refund policy", chunk_index=0, score=0.03,
+        content="Customers can request a full refund within 30 days of delivery. "
+                "Damaged items are replaced free of charge within 90 days."),
+]
+
+
+@pytest.fixture
+def compatible(monkeypatch):
+    """Configure LLM_PROVIDER=openai-compatible and route httpx.post to a handler; returns the requests."""
+    monkeypatch.setenv("LLM_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.groq.example/openai/v1/")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "llama-test")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "123")
+    monkeypatch.setattr(llm, "settings", Settings())
+    seen: list[httpx.Request] = []
+
+    def route(handler):
+        def post(url, **kwargs):
+            def record(request: httpx.Request) -> httpx.Response:
+                seen.append(request)
+                return handler(request)
+
+            with httpx.Client(transport=httpx.MockTransport(record)) as client:
+                kwargs.pop("timeout", None)
+                return client.post(url, **kwargs)
+
+        monkeypatch.setattr(llm.httpx, "post", post)
+        return seen
+
+    return route
+
+
+def ok(text: str):
+    return lambda request: httpx.Response(200, json={"choices": [{"message": {"content": text}}]})
+
+
+def test_openai_compatible_request_shape(compatible):
+    seen = compatible(ok("Within 30 days [1]."))
+    history = [llm.Turn("What is the refund policy?", "Full refund within 30 days [1].")]
+    answer = llm.generate_answer("And for damaged items?", HITS, history)
+
+    assert answer == "Within 30 days [1]."
+    [req] = seen
+    assert str(req.url) == "https://api.groq.example/openai/v1/chat/completions"
+    assert req.headers["authorization"] == "Bearer test-key"
+    body = json.loads(req.content)
+    assert body["model"] == "llama-test" and body["max_tokens"] == 123 and body["temperature"] == 0
+    roles = [m["role"] for m in body["messages"]]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert body["messages"][0]["content"] == llm.SYSTEM_PROMPT
+    assert body["messages"][1]["content"] == "What is the refund policy?"
+    assert body["messages"][2]["content"] == "Full refund within 30 days [1]."
+    last = body["messages"][3]["content"]
+    assert last.startswith("Sources:\n[1] (refund policy)") and last.endswith("Question: And for damaged items?")
+
+
+def test_system_prompt_keeps_language_citation_and_injection_rules():
+    p = llm.SYSTEM_PROMPT
+    assert "[1]" in p and "untrusted data" in p and "ignore any instructions" in p
+    assert "language of the latest question" in p and "Russian" in p and "Arabic" in p
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        lambda r: httpx.Response(429, json={"error": {"message": "rate limit"}}),
+        lambda r: httpx.Response(500, text="boom"),
+        lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("slow", request=r)),
+        ok(""),
+    ],
+    ids=["429", "500", "timeout", "empty"],
+)
+def test_provider_failure_falls_back_to_extractive(compatible, handler):
+    compatible(handler)
+    answer, provider = llm.answer_with_fallback("How many days to request a refund?", HITS)
+    assert provider == llm.FALLBACK_PROVIDER
+    assert "30 days" in answer and "[1]" in answer
+
+
+def test_missing_base_url_falls_back(compatible, monkeypatch):
+    compatible(ok("unused"))
+    monkeypatch.delenv("LLM_BASE_URL")
+    monkeypatch.setattr(llm, "settings", Settings())
+    assert llm.answer_with_fallback("refund days?", HITS)[1] == llm.FALLBACK_PROVIDER
+
+
+def test_success_reports_the_configured_provider(compatible):
+    compatible(ok("30 days [1]."))
+    assert llm.answer_with_fallback("refund?", HITS) == ("30 days [1].", "openai-compatible")
+
+
+def test_summary_falls_back_to_template_on_rate_limit(compatible, monkeypatch):
+    compatible(lambda r: httpx.Response(429))
+    monkeypatch.setattr(insights, "settings", llm.settings)
+    summary, provider = insights.summarize([], [])
+    assert provider == "template" and summary == "No unusual movements in this period."
+
+
+# ---------------------------------------------------------------- follow-up queries
+
+PREV = [llm.Turn("What is the refund policy?", "Full refund within 30 days [1].")]
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "And for damaged items?",  # opener
+        "How long?",  # short
+        "Does it apply to gift cards bought online last year?",  # back-reference
+        "А для повреждённых товаров?",
+        "Это касается подарочных карт купленных онлайн?",
+        "وماذا عن ذلك بالنسبة للمنتجات التالفة؟",
+    ],
+)
+def test_follow_ups_combine_with_the_previous_question(question):
+    assert llm.build_retrieval_query(question, PREV) == f"{question} What is the refund policy?"
+
+
+def test_standalone_questions_are_searched_alone():
+    q = "Which warehouse ships orders to customers in Kazan?"
+    assert llm.build_retrieval_query(q, PREV) == q
+    assert llm.build_retrieval_query("How long?", []) == "How long?"
+
+
+def test_only_the_last_turn_is_used_and_the_query_is_capped():
+    history = [llm.Turn("first question", "a"), llm.Turn("x" * 2000, "b")]
+    query = llm.build_retrieval_query("And then?", history)
+    assert query.startswith("And then? xxx") and "first" not in query
+    assert len(query) == llm.MAX_RETRIEVAL_QUERY
+
+
+# ---------------------------------------------------------------- /v1/ask
+
+
+@pytest.fixture
+def fake_search(monkeypatch):
+    calls: list[str] = []
+
+    @contextmanager
+    def connection():
+        yield None
+
+    monkeypatch.setattr(main, "get_pool", lambda: type("P", (), {"connection": staticmethod(connection)})())
+
+    def search(conn, tenant, query, qvec, k):
+        calls.append(query)
+        return HITS
+
+    monkeypatch.setattr(main, "hybrid_search", search)
+    return calls
+
+
+def test_ask_extractive_uses_the_combined_query(fake_search, monkeypatch):
+    monkeypatch.setattr(llm, "settings", Settings())  # extractive default
+    res = TestClient(main.app).post(
+        "/v1/ask",
+        headers=HEADERS,
+        json={
+            "tenant_id": TENANT,
+            "question": "And damaged items?",
+            "history": [{"question": "What is the refund policy?", "answer": "30 days [1]."}],
+        },
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["retrieval_query"] == "And damaged items? What is the refund policy?"
+    assert fake_search == [data["retrieval_query"]]
+    assert data["provider"] == "extractive"
+    assert "Damaged items" in data["answer"] and data["citations"][0]["cited"] is True
+
+
+def test_ask_rate_limited_llm_still_answers(fake_search, compatible):
+    compatible(lambda r: httpx.Response(429))
+    res = TestClient(main.app).post(
+        "/v1/ask", headers=HEADERS, json={"tenant_id": TENANT, "question": "How many days for a refund?"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["provider"] == "extractive-fallback" and "30 days" in data["answer"]
+    assert data["retrieval_query"] == "How many days for a refund?"
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        [{"question": "q", "answer": "a"}] * 5,
+        [{"question": "q" * 2001, "answer": "a"}],
+        [{"question": "q", "answer": "a" * 2001}],
+        [{"question": "", "answer": "a"}],
+        [{"question": "q"}],
+    ],
+    ids=["too-many-turns", "long-question", "long-answer", "empty-question", "missing-answer"],
+)
+def test_history_limits_are_validated(fake_search, history):
+    res = TestClient(main.app).post(
+        "/v1/ask", headers=HEADERS, json={"tenant_id": TENANT, "question": "refund?", "history": history}
+    )
+    assert res.status_code == 422
+    assert fake_search == []
+
+
+def test_history_at_the_limits_is_accepted(fake_search, monkeypatch):
+    monkeypatch.setattr(llm, "settings", Settings())
+    history = [{"question": "q" * 2000, "answer": "a" * 2000}] * 4
+    res = TestClient(main.app).post(
+        "/v1/ask", headers=HEADERS, json={"tenant_id": TENANT, "question": "refund?", "history": history}
+    )
+    assert res.status_code == 200

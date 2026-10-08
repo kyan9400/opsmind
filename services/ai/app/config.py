@@ -27,6 +27,17 @@ def _int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be a whole number, got {value!r}") from None
 
 
+def _float(name: str, default: float) -> float:
+    """A decimal number; unset or empty keeps the default."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        raise ValueError(f"{name} must be a number, got {value!r}") from None
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str = field(default_factory=lambda: _env("DATABASE_URL", "postgres://opsmind:opsmind@localhost:5432/opsmind"))
@@ -36,8 +47,15 @@ class Settings:
     embed_provider: str = field(default_factory=lambda: _env("EMBED_PROVIDER", "hash"))
     embed_dim: int = 768
 
-    # Answers: "extractive" (offline, no LLM), "openai", "anthropic", "ollama".
+    # Answers: "extractive" (offline, no LLM), "openai", "anthropic", "ollama", "openai-compatible".
     llm_provider: str = field(default_factory=lambda: _env("LLM_PROVIDER", "extractive"))
+
+    # Any /chat/completions endpoint (Groq, OpenRouter, Together, vLLM...): one adapter, no SDK per vendor.
+    llm_base_url: str = field(default_factory=lambda: _env("LLM_BASE_URL", ""))
+    llm_api_key: str = field(default_factory=lambda: _env("LLM_API_KEY", ""))
+    llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", ""))
+    llm_timeout_s: float = field(default_factory=lambda: _float("LLM_TIMEOUT_S", 30.0))
+    llm_max_tokens: int = field(default_factory=lambda: _int("LLM_MAX_TOKENS", 400))
 
     openai_api_key: str = field(default_factory=lambda: _env("OPENAI_API_KEY", ""))
     openai_embed_model: str = field(default_factory=lambda: _env("OPENAI_EMBED_MODEL", "text-embedding-3-small"))
