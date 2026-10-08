@@ -57,6 +57,14 @@ class Settings:
     llm_timeout_s: float = field(default_factory=lambda: _float("LLM_TIMEOUT_S", 30.0))
     llm_max_tokens: int = field(default_factory=lambda: _int("LLM_MAX_TOKENS", 400))
 
+    # Ingest limits: an upload's text is decompressed (PDF), chunked and embedded, and every chunk
+    # stores a 768-d vector plus index entries (~8 KB). These keep one upload from taking minutes of
+    # CPU or tens of MB of a small database. Over a limit, /v1/ingest answers 422 "document too long"
+    # and the document is marked failed. 0 turns a limit off.
+    ingest_max_chars: int = field(default_factory=lambda: _int("INGEST_MAX_CHARS", 200_000))
+    ingest_max_chunks: int = field(default_factory=lambda: _int("INGEST_MAX_CHUNKS", 300))
+    ingest_max_pdf_pages: int = field(default_factory=lambda: _int("INGEST_MAX_PDF_PAGES", 50))
+
     openai_api_key: str = field(default_factory=lambda: _env("OPENAI_API_KEY", ""))
     openai_embed_model: str = field(default_factory=lambda: _env("OPENAI_EMBED_MODEL", "text-embedding-3-small"))
     openai_chat_model: str = field(default_factory=lambda: _env("OPENAI_CHAT_MODEL", "gpt-4o-mini"))

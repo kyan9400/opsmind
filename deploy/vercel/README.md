@@ -325,6 +325,9 @@ it and has no fix yet).
 | `NEXT_PUBLIC_SANDBOX` | web | unset | `true` | Shows **Try it with your own data** (build time). Pair with `ALLOW_SANDBOX=true`. |
 | `DB_POOL_MAX` | ai | `10` | `2` | Postgres connections per instance. |
 | `DB_POOL_CHECK` | ai | `false` | `true` | Test each connection before use (instances freeze between requests). |
+| `INGEST_MAX_CHARS` | ai | `200000` | default | Characters of extracted text per document; above it the document fails with "document too long". `0`: no limit. |
+| `INGEST_MAX_CHUNKS` | ai | `300` | default | Chunks per document (each stores a vector and index entries, ~8 KB). `0`: no limit. |
+| `INGEST_MAX_PDF_PAGES` | ai | `50` | default | PDF pages, checked before any text is extracted. `0`: no limit. |
 
 Files: `apps/api/vercel.json` (Express preset, `dist/` entry, Frankfurt, daily cron, PDF fonts),
 `services/ai/vercel.json` and `services/ai/index.py` (FastAPI entry, Frankfurt),
