@@ -107,9 +107,11 @@ def extractive_answer(
     q = set(tokenize(question)) - STOPWORDS
     scored: list[tuple[float, int, str]] = []
     for i, h in enumerate(hits, 1):
+        title = set(tokenize(h.title))
         for sentence in re.split(r"(?<=[.!?。])\s+|\n+", h.content):
             words = tokenize(sentence)
-            if not words:
+            # Headings are not answers: skip the document title and other very short fragments.
+            if len(words) < 4 or set(words) <= title:
                 continue
             overlap = len(q.intersection(words))
             if overlap:
