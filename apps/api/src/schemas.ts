@@ -27,9 +27,25 @@ export const UpdateRoleBody = z.object({ role: z.enum(ROLES) });
 
 export const DocumentTitle = z.string().trim().min(1).max(200);
 
+/** Limits of the AI service's /v1/ask history, which answers 422 (no truncation) to anything longer. */
+export const ASK_HISTORY_TURNS = 4;
+export const ASK_HISTORY_CHARS = 2000;
+
+const HistoryTurn = z.object({
+  question: z.string().trim().max(ASK_HISTORY_CHARS),
+  answer: z.string().trim().max(ASK_HISTORY_CHARS),
+});
+
 export const AskBody = z.object({
   question: z.string().trim().min(1).max(500),
   topK: z.coerce.number().int().min(1).max(10).default(5),
+  /** Earlier turns of the conversation, oldest first, so follow-ups like "and for express?" resolve. */
+  history: z
+    .array(HistoryTurn)
+    .max(ASK_HISTORY_TURNS)
+    .default([])
+    // A turn without a question gives the AI service nothing to rewrite the follow-up against.
+    .transform((turns) => turns.filter((t) => t.question !== "")),
 });
 
 const IsoDay = z
