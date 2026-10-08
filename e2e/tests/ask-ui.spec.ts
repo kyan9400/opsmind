@@ -192,4 +192,42 @@ test.describe("on a phone", () => {
     expect(turn!.y).toBeLessThan(160);
     await expect(page.getByTestId("ask-answer")).toBeInViewport();
   });
+
+  // Widths depend on the installed fonts, so these compare against English in the same browser instead of
+  // asserting pixel sizes: the Russian copy was shortened to be no wider than the English one.
+  test("the Russian sandbox banner is no taller than the English one", async ({ page, context, baseURL }) => {
+    const expiresAt = new Date(Date.now() + 23.5 * 3600_000).toISOString();
+    await stubApi(page, [{ answer: "-" }], { ...ME, expiresAt });
+    const height: Record<string, number> = {};
+    for (const locale of ["en", "ru"]) {
+      await context.addCookies([{ name: "opsmind.locale", value: locale, url: baseURL! }]);
+      await page.goto("/dashboard/ask");
+      const banner = page.getByTestId("sandbox-banner");
+      await expect(banner).toHaveAttribute("data-hours", "23");
+      await expect(page.locator("html")).toHaveAttribute("lang", locale);
+      height[locale] = (await banner.boundingBox())!.height;
+    }
+    expect(height.ru).toBeLessThanOrEqual(height.en);
+  });
+
+  test("the sandbox button stays inside a 360 px screen in every language", async ({ page, context, baseURL }) => {
+    // Only builds with NEXT_PUBLIC_SANDBOX render the button (Compose passes ALLOW_SANDBOX through).
+    test.skip(process.env.ALLOW_SANDBOX !== "true", "sandbox button is not in this build");
+    for (const path of ["/", "/login"]) {
+      const height: Record<string, number> = {};
+      for (const locale of ["en", "ru", "ar"]) {
+        await context.addCookies([{ name: "opsmind.locale", value: locale, url: baseURL! }]);
+        await page.goto(path);
+        const button = page.getByTestId("sandbox-start");
+        await expect(button).toBeVisible();
+        const box = (await button.boundingBox())!;
+        const where = `${path} (${locale})`;
+        expect(box.x, `${where}: inside the gutter`).toBeGreaterThanOrEqual(15);
+        expect(box.x + box.width, `${where}: inside the gutter`).toBeLessThanOrEqual(360 - 15);
+        expect(await button.evaluate((el) => el.scrollWidth <= el.clientWidth), `${where}: no overflow`).toBe(true);
+        height[locale] = box.height;
+      }
+      expect(height.ru, `${path}: Russian label no taller than English`).toBeLessThanOrEqual(height.en);
+    }
+  });
 });

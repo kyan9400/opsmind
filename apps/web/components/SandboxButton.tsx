@@ -51,7 +51,9 @@ export function SandboxButton({
         onClick={start}
         disabled={busy}
         data-testid="sandbox-start"
-        className={`btn ${size === "lg" ? "btn-lg" : ""} btn-${variant} group`}
+        // Wraps instead of spilling over its edges when a label is too long for a narrow phone; min-h keeps
+        // the usual height for one line.
+        className={`btn ${size === "lg" ? "btn-lg min-h-11" : "min-h-9"} btn-${variant} group h-auto max-w-full py-1.5 text-center whitespace-normal [&>svg]:shrink-0`}
       >
         <IconUpload size={size === "lg" ? 18 : 16} />
         {busy ? t("sandbox.loading") : t("sandbox.button")}

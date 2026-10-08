@@ -249,18 +249,20 @@ export const ru: Dict = {
   "ask.searchedFor": "Поиск по запросу: {query}",
   "ask.threadLabel": "Диалог",
 
-  "sandbox.button": "Попробовать со своими данными",
+  // Short on purpose: no wider than the English label, so it fits a 360 px phone next to its two icons.
+  "sandbox.button": "Загрузить свои файлы",
   "sandbox.loading": "Создаём пространство…",
   "sandbox.loginTitle": "Хотите попробовать на своих файлах?",
   "sandbox.loginBody":
     "Получите временное личное пространство с примерами данных. Загружайте документы и задавайте по ним вопросы. Оно удаляется через 24 часа.",
+  // The banner is sticky and must stay on one line on a phone, so these stay under about 40 characters.
   "sandbox.banner": {
-    one: "Временное пространство — удалится через {count} час",
-    few: "Временное пространство — удалится через {count} часа",
-    many: "Временное пространство — удалится через {count} часов",
-    other: "Временное пространство — удалится через {count} часа",
+    one: "Временное пространство · ещё {count} час",
+    few: "Временное пространство · ещё {count} часа",
+    many: "Временное пространство · ещё {count} часов",
+    other: "Временное пространство · ещё {count} часа",
   },
-  "sandbox.bannerSoon": "Временное пространство — удалится меньше чем через час",
+  "sandbox.bannerSoon": "Временное пространство · меньше часа",
   "sandbox.bannerHint": "Доступно только вам: загружайте свои файлы и спрашивайте о них.",
   "sandbox.rateLimited": "Из вашей сети создано слишком много временных пространств. Попробуйте позже.",
   "sandbox.busy": "Сейчас открыто слишком много временных пространств. Попробуйте позже.",
