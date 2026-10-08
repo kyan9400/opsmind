@@ -24,6 +24,10 @@ variables below, so Docker Compose, Helm/kind and Codespaces run exactly as befo
   and keeps the free database awake. Only a caller with the `CRON_SECRET` can run it.
 - **Visitors can only look.** Sign-up is closed (`ALLOW_REGISTRATION=false`), visitors use the read-only
   demo login, uploads are limited to 4 MB, and `/metrics` is hidden (`METRICS_PUBLIC=false`).
+- **Or they try their own data.** With `ALLOW_SANDBOX=true` (api) and `NEXT_PUBLIC_SANDBOX=true` (web),
+  **Try it with your own data** gives each visitor a private workspace for 24 hours, with sample data and
+  owner rights (upload, CSV import). The daily job deletes expired ones. Limits: 3 per IP per hour, 50 at
+  once, 10 documents each.
 - **Cold starts.** After a quiet period the first click can take about 3–8 seconds. Nothing needs a manual wake-up.
 
 ## What you need
@@ -139,6 +143,7 @@ The region is Frankfurt (`fra1`); `services/ai/vercel.json` sets it.
    | `MAX_UPLOAD_BYTES` | `4194304` | type it (4 MB) |
    | `PG_POOL_MAX` | `3` | type it |
    | `TRUST_PROXY` | `1` | type it |
+   | `ALLOW_SANDBOX` | `true` | type it (turns on "Try it with your own data") |
 
    **Do not add `NODE_ENV`.** With `NODE_ENV=production`, Vercel skips the build tools and the build fails.
    **Do not add `REDIS_URL`.** The demo does not need Redis.
@@ -185,6 +190,7 @@ indexes the documents through your ai project. You can run it again at any time;
    | `NEXT_PUBLIC_API_URL` | `/` (one slash, nothing else) | it means "the same address as this web site" |
    | `NEXT_PUBLIC_DEMO_EMAIL` | `demo@opsmind.dev` | same as `DEMO_EMAIL` on api |
    | `NEXT_PUBLIC_DEMO_PASSWORD` | `opsmind-demo` | same as `DEMO_PASSWORD` on api |
+   | `NEXT_PUBLIC_SANDBOX` | `true` | shows the sandbox button; only together with `ALLOW_SANDBOX=true` on api |
 
    Why: the browser talks only to the web address, and the web server passes every `/api/...` call to the
    api project. So no other address is needed in the browser.
@@ -199,7 +205,8 @@ Open these addresses (replace with yours):
 | Address | Expected result |
 | --- | --- |
 | `https://opsmind-demo.vercel.app` | The start page. Click **Try the live demo**. You land on the analytics dashboard. |
-| Ask page, question "How many days do customers have to request a refund?" | An answer with "30 days" and a source. |
+| Ask page, question "How many days do customers have to request a refund?" | An answer with "30 days" and a source. Then ask "And after 30 days?": the second answer follows on from the first. |
+| Start page → **Try it with your own data** | The Documents page of a new workspace with a "deleted in 23 hours" bar. The 4 sample files become **ready** within a minute; upload a small `.txt` and ask about it. |
 | `API_URL/health` | `{"status":"ok"}` |
 | `API_URL/ready` | `{"status":"ready"}` |
 | `API_URL/metrics` | `{"error":"not found"}` (hidden on purpose) |
@@ -217,6 +224,11 @@ Check the daily job: in the api project open **Settings → Cron Jobs**. You see
   **Settings → Build and Deployment → Root Directory** and turn on
   **"Skip deployments when there are no changes to the root directory or its dependencies"**.
 - After you change an environment variable, **Redeploy** that project. Old deployments keep the old values.
+- **When an update adds a database migration** (a new file in `apps/api/migrations/`): Vercel does not
+  run migrations, so run **Actions → Demo database → Run workflow** and pick the **pull request's branch**,
+  before you merge. Migrations only add things, so the running version keeps working, and the new one
+  finds its tables ready. The sandbox update adds `004_sandbox.sql`; without it, every page after sign-in
+  fails with an error.
 - Put the web address in your CV. Add the SourceCraft "interactive preview" link as a backup for people
   whose network cannot open `vercel.app`.
 
@@ -279,6 +291,12 @@ it and has no fix yet).
 | `METRICS_PUBLIC` | api, ai | `true` | `false` | `false`: `/metrics` answers 404. |
 | `CRON_SECRET` | api | unset | random | Enables `/api/internal/cron/seed` for `Authorization: Bearer <secret>`. |
 | `DEMO_EMAIL`, `DEMO_PASSWORD` | api | unset | demo login | Used by the daily seed. |
+| `ALLOW_SANDBOX` | api | `false` | `true` | `true`: `POST /api/v1/sandbox` creates 24-hour private workspaces; the daily job deletes expired ones. |
+| `SANDBOX_RATE_LIMIT` | api | `3` | `3` | Sandboxes per IP per hour (per instance); `0` disables the limit. |
+| `SANDBOX_MAX_ACTIVE` | api | `50` | `50` | Live sandboxes at once, across all instances (protects the free database). |
+| `SANDBOX_MAX_DOCUMENTS` | api | `10` | `10` | Documents per sandbox, the 4 samples included. |
+| `SANDBOX_MAX_CSV_ROWS` | api | `5000` | `5000` | Rows per KPI CSV import in a sandbox. |
+| `NEXT_PUBLIC_SANDBOX` | web | unset | `true` | Shows **Try it with your own data** (build time). Pair with `ALLOW_SANDBOX=true`. |
 | `DB_POOL_MAX` | ai | `10` | `2` | Postgres connections per instance. |
 | `DB_POOL_CHECK` | ai | `false` | `true` | Test each connection before use (instances freeze between requests). |
 
