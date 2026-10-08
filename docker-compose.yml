@@ -71,6 +71,13 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text} # 768-d; a multilingual model helps cross-language questions
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1}
+      # Ingest limits; empty keeps the service defaults (200,000 characters, 300 chunks, 50 PDF pages,
+      # 10 MB of PDF page content, 20 s to read a PDF).
+      INGEST_MAX_CHARS: ${INGEST_MAX_CHARS:-}
+      INGEST_MAX_CHUNKS: ${INGEST_MAX_CHUNKS:-}
+      INGEST_MAX_PDF_PAGES: ${INGEST_MAX_PDF_PAGES:-}
+      INGEST_MAX_PDF_CONTENT_MB: ${INGEST_MAX_PDF_CONTENT_MB:-}
+      INGEST_MAX_PDF_SECONDS: ${INGEST_MAX_PDF_SECONDS:-}
     ports: ["8000:8000"]
     depends_on:
       postgres: { condition: service_healthy }
