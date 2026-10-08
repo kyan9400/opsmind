@@ -1,7 +1,8 @@
 /**
  * "Try it with your own data": a temporary private workspace per visitor, seeded like the public demo
  * (180 days of KPIs and the 4 sample documents), whose owner is the visitor's browser. It expires after
- * SANDBOX_TTL_HOURS; requireAuth rejects its token from then on and the daily cron deletes it.
+ * SANDBOX_TTL_HOURS; requireAuth rejects its token from then on. It is deleted by the next sandbox
+ * creation (a small batch of the oldest expired ones each time) or by the daily cron, whichever is first.
  */
 import { randomBytes } from "node:crypto";
 import { config } from "../config.js";
@@ -18,6 +19,9 @@ import { enqueueIngestAll } from "./queue.js";
 export const SANDBOX_TTL_HOURS = 24;
 export const SANDBOX_TENANT_NAME = "Sandbox workspace";
 
+/** Expired sandboxes a creation deletes on its way: small, so a visitor never waits on a big cleanup. */
+export const SANDBOX_PURGE_BATCH = 10;
+
 // Next to the migration and seed locks: concurrent creations take turns at the active-sandbox count.
 const SANDBOX_LOCK_ID = 7_274_003;
 
@@ -28,6 +32,12 @@ const SANDBOX_LOCK_ID = 7_274_003;
 export const sandboxOwnerEmail = () => `sandbox+${randomBytes(16).toString("hex")}@sandbox.invalid`;
 
 export async function createSandbox(): Promise<{ token: string; expiresAt: string }> {
+  // Free the space of expired sandboxes now rather than at the next daily cron (up to a day later). Outside
+  // the transaction below, so a refused creation keeps it.
+  await deleteExpiredSandboxes(SANDBOX_PURGE_BATCH).catch((err: Error) =>
+    console.error(JSON.stringify({ msg: "expired sandbox cleanup failed", error: err.message })),
+  );
+
   // A password nobody knows, not even the visitor: the token is the only way in.
   const passwordHash = await hashPassword(randomBytes(32).toString("hex"));
 
@@ -73,10 +83,19 @@ export async function createSandbox(): Promise<{ token: string; expiresAt: strin
   };
 }
 
-/** Deletes every expired sandbox with everything in it (ON DELETE CASCADE). Permanent tenants have no expiry. */
-export async function deleteExpiredSandboxes(): Promise<number> {
+/**
+ * Deletes expired sandboxes with everything in them (ON DELETE CASCADE), the oldest first, at most `limit`
+ * (all of them without one). Permanent tenants have no expiry. SKIP LOCKED lets concurrent cleanups (two
+ * creations, or a creation and the cron) take different rows instead of waiting for each other.
+ */
+export async function deleteExpiredSandboxes(limit?: number): Promise<number> {
   const rows = await query<{ id: string }>(
-    "DELETE FROM tenants WHERE expires_at IS NOT NULL AND expires_at <= now() RETURNING id",
+    `DELETE FROM tenants WHERE id IN (
+       SELECT id FROM tenants WHERE expires_at IS NOT NULL AND expires_at <= now()
+        ORDER BY expires_at LIMIT $1 FOR UPDATE SKIP LOCKED)
+     RETURNING id`,
+    // LIMIT NULL means no limit.
+    [limit ?? null],
   );
   return rows.length;
 }

@@ -135,4 +135,23 @@ run("sandbox workspaces (postgres)", () => {
     expect(left.rows[0]).toEqual({ tenants: 0, documents: 0, points: 0, users: 0 });
     await request(app).get("/api/v1/auth/me").set("authorization", `Bearer ${owner.body.token}`).expect(200);
   });
+
+  it("deletes expired sandboxes when a new one is created, a bounded batch at a time", async () => {
+    const ids = (await Promise.all([createSandbox(), createSandbox(), createSandbox()])).map((s) => s.me.tenantId);
+    // Expired long ago, so these are the oldest expired sandboxes and go first.
+    await pool.query(
+      `UPDATE tenants SET expires_at = '2000-01-01'::timestamptz + array_position($1::uuid[], id) * interval '1 day'
+        WHERE id = ANY($1::uuid[])`,
+      [ids],
+    );
+    const left = async () =>
+      (await pool.query<{ id: string }>("SELECT id FROM tenants WHERE id = ANY($1::uuid[]) ORDER BY expires_at", [ids]))
+        .rows.map((r) => r.id);
+
+    expect(await deleteExpiredSandboxes(1)).toBe(1);
+    expect(await left()).toEqual([ids[1], ids[2]]);
+    // The next visitor's sandbox takes the rest with it, without waiting for the daily cron.
+    await createSandbox();
+    expect(await left()).toEqual([]);
+  });
 });
