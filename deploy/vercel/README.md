@@ -357,6 +357,8 @@ it and has no fix yet).
 | `INGEST_MAX_CHARS` | ai | `200000` | default | Characters of extracted text per document; above it the document fails with "document too long". `0`: no limit. |
 | `INGEST_MAX_CHUNKS` | ai | `300` | default | Chunks per document (each stores a vector and index entries, ~8 KB). `0`: no limit. |
 | `INGEST_MAX_PDF_PAGES` | ai | `50` | default | PDF pages, checked before any text is extracted. `0`: no limit. |
+| `INGEST_MAX_PDF_CONTENT_MB` | ai | `10` | default | Decoded PDF page content, checked before any page is parsed; above it the document fails with "document too complex". Also caps one decoded stream at 4 MB. `0`: no limit. |
+| `INGEST_MAX_PDF_SECONDS` | ai | `20` | default | Time to read one PDF; checked between drawing operators, so it stops a slow page part way. `0`: no limit. |
 | `LLM_EXTRA_BODY` | ai | unset | `{"chat_template_kwargs":{"enable_thinking":false}}` with Cloudflare | JSON object added to every `openai-compatible` request. |
 
 Files: `apps/api/vercel.json` (Express preset, `dist/` entry, Frankfurt, daily cron, PDF fonts),

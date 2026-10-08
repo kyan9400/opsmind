@@ -19,7 +19,7 @@ from .chunking import chunk_text
 from .config import settings
 from .db import get_pool
 from .embeddings import embed_batched, get_embedder
-from .extract import DocumentTooLong, extract_text
+from .extract import DocumentOverLimit, extract_text
 from .insights import KpiDelta, NamedAnomaly, summarize
 from .llm import Turn, answer_with_fallback, build_retrieval_query, cited_numbers
 from .retrieval import hybrid_search
@@ -70,14 +70,21 @@ def ingest(req: IngestRequest) -> dict:
     tenant_id, mime_type, content = row
 
     try:
-        text = extract_text(bytes(content), mime_type, settings.ingest_max_chars, settings.ingest_max_pdf_pages)
+        text = extract_text(
+            bytes(content),
+            mime_type,
+            max_chars=settings.ingest_max_chars,
+            max_pdf_pages=settings.ingest_max_pdf_pages,
+            max_pdf_content_bytes=settings.ingest_max_pdf_content_mb * 1_000_000,
+            max_pdf_seconds=settings.ingest_max_pdf_seconds,
+        )
         chunks = chunk_text(text)
         if not chunks:
             raise ValueError("no extractable text in document")
         # Chunks, not characters, are what the database stores; text that breaks into unusually short
         # chunks would otherwise get past the character limit with several times the rows.
         if 0 < settings.ingest_max_chunks < len(chunks):
-            raise DocumentTooLong(
+            raise DocumentOverLimit(
                 f"document too long: {len(chunks)} chunks (limit {settings.ingest_max_chunks})"
             )
         with timed(EMBED_DURATION, provider=settings.embed_provider):

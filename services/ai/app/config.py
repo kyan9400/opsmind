@@ -82,10 +82,15 @@ class Settings:
     # Ingest limits: an upload's text is decompressed (PDF), chunked and embedded, and every chunk
     # stores a 768-d vector plus index entries (~8 KB). These keep one upload from taking minutes of
     # CPU or tens of MB of a small database. Over a limit, /v1/ingest answers 422 "document too long"
-    # and the document is marked failed. 0 turns a limit off.
+    # (or "too complex") and the document is marked failed. 0 turns a limit off.
     ingest_max_chars: int = field(default_factory=lambda: _int("INGEST_MAX_CHARS", 200_000))
     ingest_max_chunks: int = field(default_factory=lambda: _int("INGEST_MAX_CHUNKS", 300))
     ingest_max_pdf_pages: int = field(default_factory=lambda: _int("INGEST_MAX_PDF_PAGES", 50))
+    # Pages that draw without writing text get past the limits above: a few KB of compressed
+    # operators can take minutes to parse. A browser-printed 50-page document has ~5 MB of page
+    # content; 20 s is several times what such a document takes.
+    ingest_max_pdf_content_mb: int = field(default_factory=lambda: _int("INGEST_MAX_PDF_CONTENT_MB", 10))
+    ingest_max_pdf_seconds: float = field(default_factory=lambda: _float("INGEST_MAX_PDF_SECONDS", 20.0))
 
     openai_api_key: str = field(default_factory=lambda: _env("OPENAI_API_KEY", ""))
     openai_embed_model: str = field(default_factory=lambda: _env("OPENAI_EMBED_MODEL", "text-embedding-3-small"))
