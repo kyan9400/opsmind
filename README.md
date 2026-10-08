@@ -7,7 +7,7 @@
 
 ![Demo tour: sign in to the demo, inspect an anomaly on the analytics dashboard, get a cited answer, switch to Arabic (right-to-left) and back](docs/demo.gif)
 
-**Live demo:** **[opsmind-demo.vercel.app](https://opsmind-demo.vercel.app)**. Click **Try the live demo** to sign in as a read-only viewer. It is the real stack running serverless: Next.js and the Express API on Vercel, the Python AI service on Vercel, and Postgres + pgvector on Supabase ([setup](deploy/vercel/README.md)). It is checked daily by the [live check](.github/workflows/live-check.yml). Some networks in Russia block `*.vercel.app`; if it does not open, use the preview below.
+**Live demo:** **[opsmind-demo.vercel.app](https://opsmind-demo.vercel.app)**. Click **Try the live demo** to sign in as a read-only viewer. It is the real stack running serverless: Next.js and the Express API on Vercel, the Python AI service on Vercel, and Postgres + pgvector on Supabase ([setup](deploy/vercel/README.md)). It is checked daily by the [live check](.github/workflows/live-check.yml). Some networks in Russia block `*.vercel.app`; if it does not open, use the preview below. Where a deployment turns sandboxes on, **Try it with your own data** opens a private 24-hour workspace instead, for your own files ([details](#try-it-with-your-own-data)).
 
 **Interactive preview:** [hass-ak.sourcecraft.site/opsmind](https://hass-ak.sourcecraft.site/opsmind/). It opens instantly with recorded demo data and no server, and it is clearly labelled as a preview ([how it works](deploy/sourcecraft/README.md)).
 
@@ -15,8 +15,8 @@
 
 **Measured in CI:**
 
-- **Tests:** 57 API tests (9 of them against a real Postgres), 48 AI-service tests (3 against pgvector) and 6 Playwright browser tests, which run twice: directly and through the Codespaces proxy.
-- **Pipeline:** 12 jobs on every pull request and every push to `main`, from unit tests to a Helm install on kind and a dev-container boot ([list](#testing)).
+- **Tests:** 89 API tests (16 of them against a real Postgres), 79 AI-service tests (3 against pgvector), 14 Playwright browser tests and 8 unit tests of the answer renderer. The browser tests run twice, directly and through the Codespaces proxy; the two sandbox ones run only in the first pass, where sandboxes are on.
+- **Pipeline:** 14 jobs on every pull request and every push to `main`, from unit tests to a Helm install on kind, a dev-container boot and the serverless profile the live demo runs ([list](#testing)).
 - **Load:** k6 with 50 virtual users, 0 errors, p95 between 3.1 ms (documents) and 9.4 ms (ask) per endpoint in a typical run, against budgets of 100–800 ms. This uses the offline providers (hash embeddings, extractive answers), so `ask` measures retrieval, not an LLM ([details](#load-testing)).
 - **Retrieval:** on 56 labelled questions over 12 documents in English, Russian and Arabic, hybrid search reaches Recall@5 85.7% and MRR@10 0.763 with the offline hash embedder ([details](#retrieval-quality)).
 
@@ -79,16 +79,17 @@ browser → │  Next.js web │ ─────► │  Node.js API (TS) │ �
    - full text: `to_tsquery('simple', …)` over an OR of the question's content words (EN/RU/AR stop words dropped), ranked by `ts_rank_cd`. The `simple` configuration has no language-specific stemming, so all three languages tokenize alike.
 
    They are merged with **Reciprocal Rank Fusion**. This catches exact terms (IDs, names) that embeddings miss, and paraphrases that keyword search misses.
-5. **Answer**: the top chunks are numbered and sent to the LLM, which must cite `[n]`. The prompt treats sources as untrusted data (a prompt-injection guard). The response marks which sources were actually cited.
+5. **Answer**: the top chunks are numbered and sent to the LLM, which must cite `[n]`. The prompt treats sources as untrusted data (a prompt-injection guard). The response marks which sources were actually cited. If the LLM fails or hits a rate limit, the answer falls back to the extractive one (provider `extractive-fallback`) instead of an error.
+6. **Display**: the web app renders a small Markdown subset (paragraphs, line breaks, lists, bold, italics, code) and turns `[n]` into chips that jump to the source card. It builds React elements, never HTML strings, so HTML or links in an answer stay plain text.
 
 ### Providers
 
 | | Offline default | Hosted | Local |
 |---|---|---|---|
 | Embeddings (`EMBED_PROVIDER`) | `hash`: deterministic feature hashing, lexical only | `openai` (`text-embedding-3-small`, 768-d) | `ollama` (`nomic-embed-text`) |
-| Answers (`LLM_PROVIDER`) | `extractive`: best-matching source sentences, cited | `openai`, `anthropic` | `ollama` (`llama3.1`) |
+| Answers (`LLM_PROVIDER`) | `extractive`: best-matching source sentences, cited | `openai`, `anthropic`, `openai-compatible` (any `/chat/completions` endpoint: Groq, OpenRouter, Cloudflare Workers AI, vLLM…) | `ollama` (`llama3.1`) |
 
-The offline defaults need no API keys, so CI and a fresh `docker compose up` work out of the box. Switch to a real model for semantic quality:
+The offline defaults need no API keys, so CI and a fresh `docker compose up` work out of the box. An LLM is optional and set per deployment: `openai-compatible` takes `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` and optional `LLM_TIMEOUT_S` / `LLM_MAX_TOKENS` ([free-tier setup for the Vercel demo](deploy/vercel/README.md#optional-real-llm-answers-free-tier-for-example-groq)). Switch to a real model for semantic quality:
 
 ```bash
 # Fully local, private: nothing leaves the machine
@@ -313,9 +314,9 @@ The demo workspace is read-only and shared. **Try it with your own data** (landi
 - It answers right away; the sample documents are indexed in the background (the worker, or the API process with `INGEST_MODE=inline`), and the Documents page shows them becoming ready. Waiting would put a cold AI service and its retries inside the 300-second Vercel limit for nothing.
 - Abuse limits: `SANDBOX_RATE_LIMIT` creations per IP per hour (default 3) and at most `SANDBOX_MAX_ACTIVE` live sandboxes (default 20, because the per-IP counter is per instance on serverless hosts). Each sandbox holds at most `SANDBOX_MAX_DOCUMENTS` documents (default 10, samples included), `SANDBOX_MAX_BYTES` of files (default 1 MB) with `SANDBOX_MAX_FILE_BYTES` per file (default 512 KB, documents and CSVs) and `SANDBOX_MAX_CSV_ROWS` KPI points over all imports (default 5,000, the 1,080 sample points included). These are checked in the write's transaction under a lock on the tenant row, so parallel requests cannot slip past them. Uploads, re-indexes, CSV imports and demo loads share `SANDBOX_WRITE_RATE_LIMIT` per sandbox per hour (default 20; counted in memory and again in the audit log, so it holds across serverless instances), and a sandbox can only re-index a failed or stuck document (409 otherwise). While the database is larger than `SANDBOX_DB_BRAKE_BYTES` (default 350 MB, checked once a minute per instance), sandbox creation and sandbox writes answer 503, so sandboxes stop growing long before a 500 MB free database fills up and turns read-only. The usual AI budget applies too. A sandbox cannot add users or change roles (403).
 - Expiry: `tenants.expires_at` (migration `004`, empty for normal workspaces). From that moment its token gets 401 `sandbox expired`. The next sandbox creation deletes up to 10 expired sandboxes (oldest first), and the daily cron (`/api/internal/cron/seed`) deletes the rest, so the data is gone at the latest about a day after expiry; everything in a sandbox goes with the tenant (`ON DELETE CASCADE`).
-- Off by default. Turn it on with `ALLOW_SANDBOX=true` on the API and `NEXT_PUBLIC_SANDBOX=true` for the web build (Docker Compose passes `ALLOW_SANDBOX` to both). The static preview never shows it.
+- Off by default, and switched on per deployment: `ALLOW_SANDBOX=true` on the API and `NEXT_PUBLIC_SANDBOX=true` for the web build (Docker Compose passes `ALLOW_SANDBOX` to both). Without them the button is not shown. The static preview never shows it.
 
-**Ask as a conversation.** The Ask page is a chat: follow-up questions are sent with the last 4 turns as `history` (2,000 characters per field), so "and for express?" is understood. The conversation stays for the browser tab (sessionStorage), answers appear word by word (instantly with reduced motion), and there are **New chat** and copy buttons.
+**Ask as a conversation.** The Ask page is a chat: follow-up questions are sent with the last 4 turns as `history` (2,000 characters per field), so "and for express?" is understood, and a rewritten search query is shown under the answer. The conversation stays for the browser tab (sessionStorage), and there are **New chat** and copy buttons. Answers appear word by word (instantly with reduced motion) and the page scrolls to the start of the new answer. Screen readers hear the whole answer once, through a polite live region, and never the half-typed text.
 
 The UI is available in **English, Russian and Arabic**. Arabic uses a full right-to-left layout, and the language is rendered server-side, so the first paint is already correct.
 
@@ -340,12 +341,14 @@ CI runs every suite against real Postgres + Redis service containers. It then st
 **Browser tests** ([`e2e/`](e2e)) drive the real UI with Playwright against the full `docker compose` stack. Each spec creates its own workspace and selects elements by `data-testid`, so copy changes and translations don't break them:
 - **auth**: register → dashboard → sign out → sign in; a wrong password shows an error
 - **documents + ask**: upload a policy → wait for indexing → cited answer; a follow-up question is sent with the history, survives a reload, and **New chat** clears it
+- **ask UI** (API stubbed in the browser, so each case controls the answer): LLM-style Markdown is formatted and raw HTML stays text, citation chips jump to their source, the answer is announced once and focus returns to the input, a phone scrolls to the new answer, the search query is isolated in the Arabic label, and the Russian sandbox banner and button fit a 360 px screen
 - **sandbox** (with `ALLOW_SANDBOX=true`): create a sandbox → upload a text file → wait until it is ready → ask about it
 - **analytics**: demo KPIs, anomalies, 90-day weekly view, table view, Excel download
 - **rbac**: a viewer sees no upload, import or demo controls, and the API refuses them too
 - **i18n**: Russian and Arabic (RTL) switch `<html lang/dir>` and survive a reload
+- **answer Markdown** (unit tests, no browser): the parser, the word-by-word reveal and the text read to screen readers
 
-CI runs twelve jobs on every pull request and every push to `main`:
+CI runs fourteen jobs on every pull request and every push to `main`:
 
 | Job | What it checks |
 |---|---|
@@ -361,6 +364,8 @@ CI runs twelve jobs on every pull request and every push to `main`:
 | `observability` | Prometheus config and alert rules, Grafana dashboards, compose overlay |
 | `codespace` | `.devcontainer/start.sh` (twice, like a restarted codespace), then demo sign-in, smoke test, the one-click demo in a real browser and the Playwright suite, all through the web app's same-origin proxy |
 | `devcontainer` | Boots the dev container end to end as Codespaces does, then checks the demo button is served |
+| `serverless` | The Vercel profile without Redis or a worker: entry points load as on Vercel, inline indexing, the daily cron seed, sandbox create/limits/expiry/cleanup, closed sign-up and hidden `/metrics` |
+| `preview` | Records the static SourceCraft preview from the real stack, builds it and smoke-tests it in a browser with no API |
 
 ## Roadmap
 

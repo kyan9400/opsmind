@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type Ref } from "react";
 import { useRouter } from "next/navigation";
 import {
   IconAlert,
@@ -25,6 +25,7 @@ import {
 } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/provider";
+import { countWords, parseMarkdown, plainText, takeWords, type Block, type Inline } from "@/lib/markdown";
 import { PREVIEW } from "@/lib/preview";
 
 const EXAMPLES = ["ask.example1", "ask.example2", "ask.example3"] as const;
@@ -69,51 +70,125 @@ const historyOf = (turns: Turn[]): AskTurn[] =>
 
 const prefersReducedMotion = () =>
   typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const scrollBehavior = (): ScrollBehavior => (prefersReducedMotion() ? "auto" : "smooth");
 
 /**
- * Reveals `text` word by word in about a second, whatever its length. Starts with the first word so the
- * answer is never an empty box; with reduced motion (or animate=false) everything shows at once.
+ * Reveals an answer of `total` words in about a second, whatever its length. Starts with the first word so
+ * the answer is never an empty box; with reduced motion (or animate=false) everything shows at once.
  */
-function useTypewriter(text: string, animate: boolean, onDone: () => void) {
-  const tokens = useMemo(() => text.split(/(\s+)/), [text]);
-  const [shown, setShown] = useState(() => (animate && !prefersReducedMotion() ? 1 : tokens.length));
+function useTypewriter(total: number, animate: boolean, onDone: () => void) {
+  const [shown, setShown] = useState(() => (animate && !prefersReducedMotion() ? Math.min(1, total) : total));
   const done = useRef(onDone);
   done.current = onDone;
 
   useEffect(() => {
-    if (shown >= tokens.length) {
+    if (shown >= total) {
       if (animate) done.current();
       return;
     }
-    const step = Math.max(1, Math.ceil(tokens.length / 50));
-    const id = setTimeout(() => setShown((n) => Math.min(tokens.length, n + step)), 20);
+    const step = Math.max(1, Math.ceil(total / 50));
+    const id = setTimeout(() => setShown((n) => Math.min(total, n + step)), 20);
     return () => clearTimeout(id);
-  }, [shown, tokens.length, animate]);
+  }, [shown, total, animate]);
 
-  return { text: shown >= tokens.length ? text : tokens.slice(0, shown).join(""), typing: shown < tokens.length };
+  return { shown, typing: shown < total };
 }
 
-/** Turns "[2]" markers in the answer into citation chips that jump to the matching source card. */
-function AnswerText({ text, turnId, testId }: { text: string; turnId: string; testId?: string }) {
-  const parts = text.split(/(\[\d+\])/g);
-  return (
-    // dir="auto": the answer's language follows the documents, not the UI, so let its first strong character decide.
-    <p className="text-[0.9375rem] leading-relaxed whitespace-pre-wrap text-fg" dir="auto" data-testid={testId}>
-      {parts.map((part, i) => {
-        const m = part.match(/^\[(\d+)\]$/);
-        return m ? (
+function Inlines({ nodes, turnId, typing }: { nodes: Inline[]; turnId: string; typing: boolean }) {
+  return nodes.map((node, i) => {
+    switch (node.type) {
+      case "text":
+        return <Fragment key={i}>{node.text}</Fragment>;
+      case "br":
+        return <br key={i} />;
+      case "code":
+        return (
+          <code key={i} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]">
+            {node.text}
+          </code>
+        );
+      case "cite":
+        // "[2]" becomes a chip that jumps to source card 2. Out of the tab order while the text is still
+        // hidden from assistive tech (aria-hidden must not contain focusable elements).
+        return (
           <a
             key={i}
-            href={`#source-${turnId}-${m[1]}`}
+            href={`#source-${turnId}-${node.n}`}
+            tabIndex={typing ? -1 : undefined}
             className="mx-0.5 inline-flex h-[1.15rem] min-w-[1.15rem] items-center justify-center rounded-md border border-brand-line bg-brand-soft px-1 align-[0.1em] text-[0.6875rem] font-semibold text-brand-soft-fg no-underline transition-colors hover:border-brand"
           >
-            {m[1]}
+            {node.n}
           </a>
-        ) : (
-          <Fragment key={i}>{part}</Fragment>
+        );
+      default: {
+        const Tag = node.type === "strong" ? "strong" : "em";
+        return (
+          <Tag key={i} className={node.type === "strong" ? "font-semibold" : undefined}>
+            <Inlines nodes={node.children} turnId={turnId} typing={typing} />
+          </Tag>
+        );
+      }
+    }
+  });
+}
+
+/** The answer's Markdown subset (lib/markdown.ts) as elements; [n] markers become citation chips. */
+function AnswerText({
+  blocks,
+  turnId,
+  typing,
+  testId,
+}: {
+  blocks: Block[];
+  turnId: string;
+  typing: boolean;
+  testId?: string;
+}) {
+  const inl = (nodes: Inline[]) => <Inlines nodes={nodes} turnId={turnId} typing={typing} />;
+  return (
+    <div
+      className="space-y-3 text-[0.9375rem] leading-relaxed text-fg"
+      data-testid={testId}
+      // A stable hook for tests and screenshots: "done" once the word-by-word reveal has finished.
+      data-typing={typing ? "typing" : "done"}
+      // The half-revealed text is noise to a screen reader; the full answer sits next to it until done.
+      aria-hidden={typing || undefined}
+    >
+      {/* dir="auto" per block: the answer's language follows the documents, not the UI. */}
+      {blocks.map((b, i) => {
+        if (b.type === "list") {
+          const List = b.ordered ? "ol" : "ul";
+          return (
+            <List
+              key={i}
+              dir="auto"
+              start={b.ordered && b.start !== 1 ? b.start : undefined}
+              className={`space-y-1 ps-5 marker:text-fg-subtle ${b.ordered ? "list-decimal" : "list-disc"}`}
+            >
+              {b.items.map((item, j) => (
+                <li key={j}>{inl(item)}</li>
+              ))}
+            </List>
+          );
+        }
+        if (b.type === "code") {
+          return (
+            <pre
+              key={i}
+              dir="ltr"
+              className="overflow-x-auto rounded-control bg-muted px-3 py-2 font-mono text-[0.8125rem]"
+            >
+              <code>{b.text}</code>
+            </pre>
+          );
+        }
+        return (
+          <p key={i} dir="auto" className={b.type === "heading" ? "font-semibold" : undefined}>
+            {inl(b.children)}
+          </p>
         );
       })}
-    </p>
+    </div>
   );
 }
 
@@ -139,23 +214,30 @@ function CopyButton({ text }: { text: string }) {
   }, [copied]);
 
   return (
-    <button
-      type="button"
-      data-testid="ask-copy"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setCopied(true);
-        } catch {
-          /* clipboard refused (permissions, insecure origin): nothing useful to show */
-        }
-      }}
-      aria-label={copied ? t("ask.copied") : t("ask.copy")}
-      title={t("ask.copy")}
-      className="btn btn-ghost btn-sm w-8 px-0 text-fg-subtle hover:text-fg"
-    >
-      {copied ? <IconCheck size={15} className="text-success" /> : <IconCopy size={15} />}
-    </button>
+    <>
+      <button
+        type="button"
+        data-testid="ask-copy"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(text);
+            setCopied(true);
+          } catch {
+            /* clipboard refused (permissions, insecure origin): nothing useful to show */
+          }
+        }}
+        aria-label={t("ask.copy")}
+        title={t("ask.copy")}
+        className="btn btn-ghost btn-sm w-8 px-0 text-fg-subtle hover:text-fg"
+      >
+        {copied ? <IconCheck size={15} className="text-success" /> : <IconCopy size={15} />}
+      </button>
+      {/* Swapping the button's label is not announced; an always-mounted live region is. A sibling, because
+          a button's contents are presentational to assistive tech. */}
+      <span role="status" className="sr-only" data-testid="ask-copy-status">
+        {copied ? t("ask.copied") : ""}
+      </span>
+    </>
   );
 }
 
@@ -168,22 +250,30 @@ function TurnView({
   latest,
   animate,
   onTyped,
+  itemRef,
 }: {
   turn: Turn;
   latest: boolean;
   animate: boolean;
   onTyped: () => void;
+  itemRef?: Ref<HTMLLIElement>;
 }) {
   const { t, locale } = useI18n();
   const { result } = turn;
-  const typed = useTypewriter(result.answer, animate, onTyped);
+  const blocks = useMemo(() => parseMarkdown(result.answer), [result.answer]);
+  const total = useMemo(() => countWords(blocks), [blocks]);
+  const typed = useTypewriter(total, animate, onTyped);
   const searched =
     result.retrievalQuery && result.retrievalQuery.trim().toLowerCase() !== turn.question.trim().toLowerCase()
       ? result.retrievalQuery
       : null;
+  // The label is in the UI language and the query in the user's; <bdi> keeps the query's direction from
+  // reordering the label (an English "...?" inside the Arabic label would otherwise show its "?" first).
+  const [searchedBefore, searchedAfter = ""] = t("ask.searchedFor").split("{query}");
 
   return (
-    <li data-testid="ask-turn" className="space-y-4">
+    // scroll-mt clears the sticky top bar and the sandbox banner when a new turn is scrolled to its start.
+    <li ref={itemRef} data-testid="ask-turn" className="scroll-mt-28 space-y-4">
       <QuestionBubble text={turn.question} />
 
       <div className="card p-5">
@@ -196,13 +286,28 @@ function TurnView({
             <CopyButton text={result.answer} />
           </span>
         </div>
-        <div aria-busy={typed.typing}>
-          <AnswerText text={typed.text} turnId={turn.id} testId={latest ? "ask-answer" : undefined} />
-        </div>
+        <AnswerText
+          blocks={typed.typing ? takeWords(blocks, typed.shown) : blocks}
+          turnId={turn.id}
+          typing={typed.typing}
+          testId={latest ? "ask-answer" : undefined}
+        />
+        {typed.typing && (
+          <p className="sr-only" dir="auto">
+            {plainText(blocks)}
+          </p>
+        )}
         {searched && (
-          <p className="mt-3 flex items-center gap-1.5 text-xs text-fg-subtle">
-            <IconSearch size={13} />
-            <span dir="auto">{t("ask.searchedFor", { query: searched })}</span>
+          <p
+            className="mt-3 flex items-center gap-1.5 text-xs text-fg-subtle"
+            data-testid={latest ? "ask-searched" : undefined}
+          >
+            <IconSearch size={13} className="shrink-0" />
+            <span>
+              {searchedBefore}
+              <bdi>{searched}</bdi>
+              {searchedAfter}
+            </span>
           </p>
         )}
       </div>
@@ -265,8 +370,12 @@ export default function AskPage() {
   const [typingId, setTypingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
+  // One polite announcement per question ("Thinking…", then the whole answer), never the word-by-word text.
+  const [announcement, setAnnouncement] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const newTurnRef = useRef<HTMLLIElement>(null);
   const busy = pending !== null;
 
   // Read after mount: the server render has no sessionStorage, and both renders must match.
@@ -279,11 +388,23 @@ export default function AskPage() {
     if (restored) saveThread(turns);
   }, [turns, restored]);
 
-  // Keep the newest question, then its answer, in view as the thread grows.
+  // While waiting, keep the question and the skeleton below it in view.
   useEffect(() => {
-    if (!pending && !typingId) return;
-    endRef.current?.scrollIntoView({ block: "end", behavior: prefersReducedMotion() ? "auto" : "smooth" });
-  }, [pending, typingId]);
+    if (pending) endRef.current?.scrollIntoView({ block: "end", behavior: scrollBehavior() });
+  }, [pending]);
+
+  // When the answer arrives, show the start of the new turn, not the end of the thread: the source cards
+  // render at full height at once, and on a phone they would push the answer being typed off screen.
+  useEffect(() => {
+    if (!typingId) return;
+    newTurnRef.current?.scrollIntoView({ block: "start", behavior: scrollBehavior() });
+    // The submit button was disabled (or the example chip removed) while waiting, which drops focus to
+    // <body>; put it back in the input for the follow-up. Not on touch screens, where focusing the input
+    // opens the on-screen keyboard over the answer, and never away from something the user focused since.
+    const active = document.activeElement;
+    const lost = !active || active === document.body || formRef.current?.contains(active);
+    if (lost && window.matchMedia?.("(pointer: fine)").matches) inputRef.current?.focus({ preventScroll: true });
+  }, [typingId]);
 
   async function ask(raw: string) {
     const q = raw.trim();
@@ -291,6 +412,7 @@ export default function AskPage() {
     setPending(q);
     setError(null);
     setQuestion("");
+    setAnnouncement(t("ask.thinking"));
     try {
       const result = await api<AskResponse>("/ask", {
         method: "POST",
@@ -299,7 +421,9 @@ export default function AskPage() {
       const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       setTurns((prev) => [...prev, { id, question: q, result }]);
       setTypingId(id);
+      setAnnouncement(`${t("ask.answer")}: ${plainText(parseMarkdown(result.answer))}`);
     } catch (err) {
+      setAnnouncement(""); // the error has its own role="alert"
       if (err instanceof ApiError && err.status === 401) return router.replace("/login");
       setError((err as Error).message);
       setQuestion(q); // nothing is lost: the question goes back into the box for a retry
@@ -313,6 +437,7 @@ export default function AskPage() {
     setTypingId(null);
     setError(null);
     setQuestion("");
+    setAnnouncement("");
     inputRef.current?.focus();
   }
 
@@ -347,6 +472,7 @@ export default function AskPage() {
               latest={i === turns.length - 1 && !busy}
               animate={turn.id === typingId}
               onTyped={() => setTypingId((id) => (id === turn.id ? null : id))}
+              itemRef={turn.id === typingId ? newTurnRef : undefined}
             />
           ))}
           {pending && (
@@ -357,7 +483,8 @@ export default function AskPage() {
                   <LogoMark size={24} />
                   <span className="text-sm font-semibold text-fg">{t("ask.answer")}</span>
                 </div>
-                <div className="space-y-2 motion-safe:animate-pulse" role="status" aria-label={t("ask.thinking")}>
+                {/* Announced through the page's live region instead. */}
+                <div className="space-y-2 motion-safe:animate-pulse" aria-hidden="true">
                   <div className="h-3 w-11/12 rounded bg-muted" />
                   <div className="h-3 w-9/12 rounded bg-muted" />
                   <div className="h-3 w-10/12 rounded bg-muted" />
@@ -367,6 +494,9 @@ export default function AskPage() {
           )}
         </ol>
         <div ref={endRef} className="scroll-mb-28" />
+        <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="ask-live">
+          {announcement}
+        </p>
 
         {/* The preview can only answer these, so they stay on screen there. */}
         {(turns.length === 0 || PREVIEW) && !busy && (
@@ -403,6 +533,7 @@ export default function AskPage() {
         {/* Pinned to the bottom edge; the fade keeps the thread readable as it scrolls underneath. */}
         <div className="sticky bottom-0 z-10 -mx-4 mt-auto bg-gradient-to-t from-canvas from-70% to-transparent px-4 pt-8 pb-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <form
+            ref={formRef}
             onSubmit={(e) => {
               e.preventDefault();
               ask(question);

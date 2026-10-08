@@ -146,6 +146,8 @@ async function smoke() {
       "the menu follows client navigation",
     );
 
+    // The answer is revealed word by word; judge it only once it is complete.
+    const typed = () => page.locator('[data-testid="ask-answer"][data-typing="done"]').waitFor();
     // A recording of "couldn't find anything" would pass for an answer, so each check wants a cited source.
     const answered = async () => {
       const text = await byId("ask-answer").innerText();
@@ -153,7 +155,7 @@ async function smoke() {
     };
     await byId("nav-ask").click();
     await byId("ask-example-1").click();
-    await byId("ask-answer").waitFor();
+    await typed();
     check(await answered(), "example question gets the recorded answer, with sources");
     check((await page.locator("main").innerText()).includes("recorded answer"), "the answer is labelled as recorded");
     await byId("ask-input").fill("What will the weather be on Mars tomorrow?");
@@ -166,6 +168,7 @@ async function smoke() {
     await page.waitForFunction(() => document.documentElement.lang === "ru");
     await byId("ask-example-1").click();
     await page.getByText("записанный ответ").waitFor();
+    await typed();
     check(await answered(), "a Russian example question gets an answer with sources, labelled in Russian");
 
     await byId("lang-ar").click();
