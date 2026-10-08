@@ -1,15 +1,52 @@
 /**
- * Per-sandbox budgets that keep anonymous sandbox workspaces from filling a small free database (Supabase
- * Free turns the whole project read-only at 500 MB, the demo login included) or spending the host's CPU
- * quota: writes per hour, documents and bytes (here) and KPI data points (lib/metrics.ts).
+ * Budgets that keep anonymous sandbox workspaces from filling a small free database (Supabase Free turns
+ * the whole project read-only at 500 MB, the demo login included) or spending the host's CPU quota:
  *
- * They run inside the write's own transaction, after reserveSandboxWrite() has locked the tenant row, so
- * parallel requests of one sandbox take turns instead of all passing the same count.
+ * - a global brake on the database size, for sandbox creation and every sandbox write;
+ * - per sandbox: writes per hour, documents and bytes (here) and KPI data points (lib/metrics.ts).
+ *
+ * The per-sandbox checks run inside the write's own transaction, after reserveSandboxWrite() has locked
+ * the tenant row, so parallel requests of one sandbox take turns instead of all passing the same count.
  */
 import type pg from "pg";
 import { config } from "../config.js";
+import { query } from "./db.js";
 import { HttpError } from "./errors.js";
 import { formatBytes } from "./files.js";
+
+/** pg_database_size() stats every file of the database; once a minute per instance is enough for a brake. */
+export const DB_SIZE_TTL_MS = 60_000;
+
+let measured: { bytes: number; at: number } | undefined;
+let measuring: Promise<number> | undefined;
+
+/** The database size in bytes, cached for DB_SIZE_TTL_MS. Concurrent callers share one query. */
+export function databaseBytes(): Promise<number> {
+  if (measured && Date.now() - measured.at < DB_SIZE_TTL_MS) return Promise.resolve(measured.bytes);
+  measuring ??= query<{ bytes: string }>("SELECT pg_database_size(current_database()) AS bytes")
+    .then(([row]) => {
+      measured = { bytes: Number(row.bytes), at: Date.now() };
+      return measured.bytes;
+    })
+    .finally(() => {
+      measuring = undefined;
+    });
+  return measuring;
+}
+
+/**
+ * 503 while the database is larger than SANDBOX_DB_BRAKE_BYTES. The cached size is compared with the
+ * current setting on every call, so a changed threshold applies at once.
+ */
+export async function assertDatabaseHasRoom() {
+  const limit = config.SANDBOX_DB_BRAKE_BYTES;
+  if (limit > 0 && (await databaseBytes()) > limit) {
+    throw new HttpError(
+      503,
+      "temporary workspaces are paused because the demo database is nearly full, try again later",
+    );
+  }
+}
 
 /** The writes SANDBOX_WRITE_RATE_LIMIT counts. Each one leaves exactly one audit row with this action. */
 export const SANDBOX_WRITE_ACTIONS = [

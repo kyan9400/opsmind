@@ -15,6 +15,7 @@ import { insertDemoDocuments } from "./demoSeed.js";
 import { HttpError } from "./errors.js";
 import { importDemo } from "./metrics.js";
 import { enqueueIngestAll } from "./queue.js";
+import { assertDatabaseHasRoom } from "./sandboxLimits.js";
 
 export const SANDBOX_TTL_HOURS = 24;
 export const SANDBOX_TENANT_NAME = "Sandbox workspace";
@@ -32,11 +33,12 @@ const SANDBOX_LOCK_ID = 7_274_003;
 export const sandboxOwnerEmail = () => `sandbox+${randomBytes(16).toString("hex")}@sandbox.invalid`;
 
 export async function createSandbox(): Promise<{ token: string; expiresAt: string }> {
-  // Free the space of expired sandboxes now rather than at the next daily cron (up to a day later). Outside
-  // the transaction below, so a refused creation keeps it.
+  // Free the space of expired sandboxes now rather than at the next daily cron (up to a day later). Before
+  // the brake, which this can help, and outside the transaction below, so a refused creation keeps it.
   await deleteExpiredSandboxes(SANDBOX_PURGE_BATCH).catch((err: Error) =>
     console.error(JSON.stringify({ msg: "expired sandbox cleanup failed", error: err.message })),
   );
+  await assertDatabaseHasRoom();
 
   // A password nobody knows, not even the visitor: the token is the only way in.
   const passwordHash = await hashPassword(randomBytes(32).toString("hex"));

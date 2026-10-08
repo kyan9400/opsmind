@@ -278,6 +278,20 @@ run("sandbox workspaces (postgres)", () => {
     await reindex(doc.body.id, normal).expect(202);
   });
 
+  it("pauses sandbox creation and sandbox writes while the database is over SANDBOX_DB_BRAKE_BYTES", async () => {
+    const { auth } = await createSandbox();
+    await withSettings({ SANDBOX_DB_BRAKE_BYTES: 1 }, async () => {
+      const created = await request(app).post("/api/v1/sandbox").expect(503);
+      expect(created.body.error).toMatch(/demo database is nearly full/);
+      await upload(auth, "x").expect(503);
+      await importCsv(auth, ["2020-01-01,Visitors,1"]).expect(503);
+      await request(app).post("/api/v1/metrics/demo").set("authorization", auth).expect(503);
+      // Reading goes on as usual.
+      await request(app).get("/api/v1/documents").set("authorization", auth).expect(200);
+    });
+    await upload(auth, "x").expect(202);
+  });
+
   it("deletes expired sandboxes when a new one is created, a bounded batch at a time", async () => {
     const ids = (await Promise.all([createSandbox(), createSandbox(), createSandbox()])).map((s) => s.me.tenantId);
     // Expired long ago, so these are the oldest expired sandboxes and go first.

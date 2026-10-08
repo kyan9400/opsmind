@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express";
 import { rateLimit } from "express-rate-limit";
 import { config } from "../config.js";
+import { assertDatabaseHasRoom } from "../lib/sandboxLimits.js";
 
 /**
  * Budget for endpoints that call the AI service, so nobody can burn the LLM quota through the public
@@ -61,5 +62,12 @@ const sandboxWrites = rateLimit({
   message: { error: "too many uploads and imports in this temporary workspace, try again later" },
 });
 
-/** Guard for every write a sandbox member can make. */
-export const sandboxWriteGuard: RequestHandler = sandboxWrites;
+/** The global brake on the database size (assertDatabaseHasRoom), for sandbox members only. */
+const sandboxDatabaseBrake: RequestHandler = (req, _res, next) => {
+  if (!req.user?.sandbox) return next();
+  assertDatabaseHasRoom().then(() => next(), next);
+};
+
+/** Guard for every write a sandbox member can make: the hourly budget first, then the database brake. */
+export const sandboxWriteGuard: RequestHandler = (req, res, next) =>
+  sandboxWrites(req, res, (err?: unknown) => (err ? next(err) : sandboxDatabaseBrake(req, res, next)));

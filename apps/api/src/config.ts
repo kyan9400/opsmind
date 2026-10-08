@@ -63,7 +63,7 @@ const Env = z
     SANDBOX_MAX_DOCUMENTS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(10)),
     // Total size of the files in one sandbox, samples included. Indexed text costs about 15 times its size
     // in chunks, embeddings and their indexes (~10 KB per 700 characters), so 1 MB x SANDBOX_MAX_ACTIVE
-    // stays well below a 500 MB database.
+    // stays well below a 500 MB database even before the brake below.
     SANDBOX_MAX_BYTES: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(1024 * 1024)),
     // Largest single file (document or KPI CSV) a sandbox may upload; MAX_UPLOAD_BYTES still applies on top.
     SANDBOX_MAX_FILE_BYTES: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(512 * 1024)),
@@ -73,6 +73,10 @@ const Env = z
     // Uploads, re-indexes, CSV imports and demo loads per sandbox per hour; 0 disables. Counted in memory and
     // again in the database (audit log), so the limit also holds across serverless instances.
     SANDBOX_WRITE_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(20)),
+    // Global brake: while the database is larger than this (pg_database_size), sandbox creation and sandbox
+    // writes answer 503. It sits below Supabase Free's 500 MB, where the whole project turns read-only (the
+    // demo login included). 0 disables.
+    SANDBOX_DB_BRAKE_BYTES: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(350 * 1024 * 1024)),
   })
   .transform((env) => ({
     ...env,

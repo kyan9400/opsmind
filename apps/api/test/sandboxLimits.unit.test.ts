@@ -8,8 +8,11 @@ vi.setConfig({ testTimeout: 20_000 });
 type FakeDb = typeof import("./helpers/fakeDb.js");
 
 const VARS = [
+  "ALLOW_SANDBOX",
+  "SANDBOX_RATE_LIMIT",
   "SANDBOX_MAX_FILE_BYTES",
   "SANDBOX_WRITE_RATE_LIMIT",
+  "SANDBOX_DB_BRAKE_BYTES",
   "SANDBOX_MAX_BYTES",
   "SANDBOX_MAX_ACTIVE",
 ];
@@ -18,13 +21,14 @@ const MB = 1024 * 1024;
 const inOneDay = () => new Date(Date.now() + 24 * 60 * 60 * 1000);
 
 // Settings are read when the modules load, hence resetModules + dynamic imports with the variables set.
-async function loadApp(env: Record<string, string> = {}) {
+async function loadApp(env: Record<string, string> = {}, databaseBytes = 20 * MB) {
   vi.resetModules();
   Object.assign(process.env, env);
   const { createApp } = await import("../src/app.js");
   // The fake db instance this app was built with (a direct import of the helper may be a fresh copy).
   const db = (await import("../src/lib/db.js")) as unknown as FakeDb;
   db.answers.length = 0;
+  db.answers.push({ match: /pg_database_size/, rows: () => [{ bytes: String(databaseBytes) }] });
   const sandboxOwner = (tenantId = "sb1") =>
     db.bearer("owner", { sub: `owner-${tenantId}`, tenantId, expiresAt: inOneDay() });
   return { app: createApp(), db, sandboxOwner, owner: db.bearer("owner", { sub: "real-owner" }) };
@@ -109,6 +113,70 @@ describe("sandbox write budget (in memory)", () => {
   });
 });
 
+describe("database brake", () => {
+  it("answers 503 to sandbox writes and creation while the database is over SANDBOX_DB_BRAKE_BYTES", async () => {
+    const { app, db, sandboxOwner, owner } = await loadApp(
+      { SANDBOX_DB_BRAKE_BYTES: String(100 * MB), ALLOW_SANDBOX: "true", SANDBOX_RATE_LIMIT: "0" },
+      101 * MB,
+    );
+    const sandbox = sandboxOwner();
+    const purged: unknown[][] = [];
+    db.answers.push({ match: /^DELETE FROM tenants/, rows: (params) => (purged.push(params), []) });
+
+    for (const path of ["/api/v1/documents", "/api/v1/metrics/import", "/api/v1/metrics/demo"]) {
+      const res = await request(app).post(path).set("authorization", sandbox).expect(503);
+      expect(res.body.error).toMatch(/paused because the demo database is nearly full/);
+    }
+    const created = await request(app).post("/api/v1/sandbox").expect(503);
+    expect(created.body.error).toMatch(/nearly full/);
+    // Before refusing, the creation still deleted a batch of expired sandboxes: that is what frees space.
+    expect(purged).toEqual([[10]]);
+
+    // Reads and normal workspaces are not affected (no file: 400 from the handler, after the guard).
+    await request(app).get("/api/v1/audit?limit=0").set("authorization", sandbox).expect(400);
+    await request(app).post("/api/v1/documents").set("authorization", owner).expect(400);
+  });
+
+  it("is disabled by SANDBOX_DB_BRAKE_BYTES=0", async () => {
+    const { app, sandboxOwner } = await loadApp({ SANDBOX_DB_BRAKE_BYTES: "0" }, 10_000 * MB);
+    await request(app).post("/api/v1/documents").set("authorization", sandboxOwner()).expect(400);
+  });
+
+  it("measures the database at most once a minute per instance, with one query for concurrent callers", async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const limits = await import("../src/lib/sandboxLimits.js");
+    const db = (await import("../src/lib/db.js")) as unknown as FakeDb;
+    let bytes = 5 * MB;
+    db.answers.length = 0;
+    db.answers.push({ match: /pg_database_size/, rows: () => [{ bytes: String(bytes) }] });
+    const measured = () => db.query.mock.calls.filter(([sql]) => /pg_database_size/.test(sql)).length;
+    const before = measured();
+
+    expect(await Promise.all([limits.databaseBytes(), limits.databaseBytes()])).toEqual([5 * MB, 5 * MB]);
+    expect(measured() - before).toBe(1);
+    bytes = 6 * MB;
+    await vi.advanceTimersByTimeAsync(limits.DB_SIZE_TTL_MS - 1);
+    expect(await limits.databaseBytes()).toBe(5 * MB);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await limits.databaseBytes()).toBe(6 * MB);
+    expect(measured() - before).toBe(2);
+  });
+});
+
+describe("sandbox creation", () => {
+  it("still applies the brake when the cleanup of expired sandboxes fails", async () => {
+    const { app } = await loadApp(
+      { SANDBOX_DB_BRAKE_BYTES: String(MB), ALLOW_SANDBOX: "true", SANDBOX_RATE_LIMIT: "0" },
+      2 * MB,
+    );
+    // No answer for the DELETE: it fails like an unreachable database, is logged, and creation goes on.
+    const res = await request(app).post("/api/v1/sandbox").expect(503);
+    expect(res.body.error).toMatch(/nearly full/);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("expired sandbox cleanup failed"));
+  });
+});
+
 describe("sandbox settings", () => {
   it("default to small budgets, and read a blank value as unset", async () => {
     vi.resetModules();
@@ -121,6 +189,7 @@ describe("sandbox settings", () => {
       SANDBOX_MAX_FILE_BYTES: 512 * 1024,
       SANDBOX_MAX_CSV_ROWS: 5000,
       SANDBOX_WRITE_RATE_LIMIT: 20,
+      SANDBOX_DB_BRAKE_BYTES: 350 * MB,
     });
   });
 });
