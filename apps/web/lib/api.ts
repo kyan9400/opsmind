@@ -45,6 +45,8 @@ export interface Me {
   role: Role;
   tenantId: string;
   tenantName: string;
+  /** Set only for a temporary sandbox workspace: when it (and this session) ends. */
+  expiresAt?: string | null;
 }
 export interface User {
   id: string;
@@ -79,7 +81,16 @@ export interface AskResponse {
   citations: Citation[];
   provider: string;
   ms: number;
+  /** The standalone question the search ran with, when a follow-up was rewritten using the history. */
+  retrievalQuery?: string;
 }
+/** One earlier exchange sent with a follow-up question (the API takes the last 4, 2,000 characters each). */
+export interface AskTurn {
+  question: string;
+  answer: string;
+}
+export const ASK_HISTORY_TURNS = 4;
+export const ASK_HISTORY_CHARS = 2000;
 
 export type Bucket = "day" | "week" | "month";
 export interface Kpi {

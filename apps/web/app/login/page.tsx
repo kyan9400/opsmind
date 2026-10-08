@@ -7,6 +7,7 @@ import { demoEnabled, DemoLoginButton } from "@/components/DemoLoginButton";
 import { IconAlert, IconArrowRight } from "@/components/icons";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Logo } from "@/components/Logo";
+import { SandboxButton, sandboxEnabled } from "@/components/SandboxButton";
 import { api, setToken } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW } from "@/lib/preview";
@@ -175,17 +176,28 @@ function AuthForm() {
         {mode === "login" ? t("login.toRegister") : t("login.toSignIn")}
       </button>
 
-      {demoEnabled && (
+      {(demoEnabled || sandboxEnabled) && (
         <>
           <div className="my-6 flex items-center gap-3 text-xs text-fg-subtle" aria-hidden>
             <span className="h-px flex-1 bg-line" />
             {t("login.or")}
             <span className="h-px flex-1 bg-line" />
           </div>
-          <div className="rounded-control border border-brand-line bg-brand-soft p-4">
-            <p className="text-sm font-semibold text-fg">{t("login.demoTitle")}</p>
-            <p className="mt-1 text-sm text-fg-muted">{t("login.demoBody")}</p>
-            <DemoLoginButton variant="primary" className="mt-3 [&>button]:w-full" />
+          <div className="space-y-3">
+            {demoEnabled && (
+              <div className="rounded-control border border-brand-line bg-brand-soft p-4">
+                <p className="text-sm font-semibold text-fg">{t("login.demoTitle")}</p>
+                <p className="mt-1 text-sm text-fg-muted">{t("login.demoBody")}</p>
+                <DemoLoginButton variant="primary" className="mt-3 [&>button]:w-full" />
+              </div>
+            )}
+            {sandboxEnabled && (
+              <div className="rounded-control border border-line bg-muted p-4">
+                <p className="text-sm font-semibold text-fg">{t("sandbox.loginTitle")}</p>
+                <p className="mt-1 text-sm text-fg-muted">{t("sandbox.loginBody")}</p>
+                <SandboxButton variant="secondary" className="mt-3 [&>button]:w-full" />
+              </div>
+            )}
           </div>
         </>
       )}

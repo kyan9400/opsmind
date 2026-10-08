@@ -4,7 +4,7 @@ import { hashPassword } from "../lib/auth.js";
 import { audit } from "../lib/audit.js";
 import { HttpError } from "../lib/errors.js";
 import { canAssign, type Role } from "../lib/rbac.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { forbidSandbox, requireAuth, requireRole } from "../middleware/auth.js";
 import { CreateUserBody, UpdateRoleBody } from "../schemas.js";
 
 export const usersRouter = Router();
@@ -20,7 +20,8 @@ usersRouter.get("/", requireRole("viewer"), async (req, res) => {
   res.json({ data: users });
 });
 
-usersRouter.post("/", requireRole("admin"), async (req, res) => {
+// A sandbox is one visitor's scratch space: no accounts for other people, no role changes.
+usersRouter.post("/", requireRole("admin"), forbidSandbox, async (req, res) => {
   const body = CreateUserBody.parse(req.body);
   if (!canAssign(req.user!.role, body.role)) throw new HttpError(403, `cannot assign role ${body.role}`);
 
@@ -39,7 +40,7 @@ usersRouter.post("/", requireRole("admin"), async (req, res) => {
   res.status(201).json(user);
 });
 
-usersRouter.patch("/:id/role", requireRole("admin"), async (req, res) => {
+usersRouter.patch("/:id/role", requireRole("admin"), forbidSandbox, async (req, res) => {
   const { role } = UpdateRoleBody.parse(req.body);
   const [target] = await query<{ role: Role; email: string }>(
     "SELECT role, email FROM users WHERE id = $1 AND tenant_id = $2",

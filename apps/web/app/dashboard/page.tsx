@@ -143,7 +143,8 @@ export default function Dashboard() {
               </li>
             ))}
           </ul>
-          {isAdmin && (
+          {/* A sandbox belongs to one visitor: the API refuses new accounts there, so do not offer the form. */}
+          {isAdmin && !me.expiresAt && (
             <form
               onSubmit={addUser}
               className="border-t border-line bg-muted/50 px-5 py-4"

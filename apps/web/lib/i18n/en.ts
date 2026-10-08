@@ -243,4 +243,25 @@ export const en = {
   "ask.answer": "Answer",
   "ask.tryExample": "Try an example",
   "ask.cited": "Cited",
+  "ask.newChat": "New chat",
+  "ask.copy": "Copy answer",
+  "ask.copied": "Copied",
+  "ask.followUp": "Ask a follow-up…",
+  "ask.searchedFor": "Searched for: {query}",
+  "ask.threadLabel": "Conversation",
+
+  // Temporary "try it with your own data" workspace (API: ALLOW_SANDBOX, web: NEXT_PUBLIC_SANDBOX).
+  "sandbox.button": "Try it with your own data",
+  "sandbox.loading": "Creating your workspace…",
+  "sandbox.loginTitle": "Want to try your own files?",
+  "sandbox.loginBody":
+    "Get a private temporary workspace with sample data. Upload documents and ask about them. It is deleted after 24 hours.",
+  "sandbox.banner": {
+    one: "Temporary workspace — deleted in {count} hour",
+    other: "Temporary workspace — deleted in {count} hours",
+  },
+  "sandbox.bannerSoon": "Temporary workspace — deleted in less than an hour",
+  "sandbox.bannerHint": "Private to you: upload your own files and ask about them.",
+  "sandbox.rateLimited": "Too many temporary workspaces were created from your network. Try again later.",
+  "sandbox.busy": "There are too many temporary workspaces right now. Try again later.",
 } satisfies Record<string, string | PluralForms>;

@@ -62,6 +62,22 @@ export async function enqueueIngest(documentId: string) {
   );
 }
 
+/**
+ * Several documents at once (a new sandbox's samples). Inline mode indexes them one after another in a
+ * single background task, which keeps the AI service's small connection pool free for visitors.
+ */
+export async function enqueueIngestAll(documentIds: string[]) {
+  if (config.INGEST_MODE === "inline") {
+    waitUntil(
+      (async () => {
+        for (const id of documentIds) await ingestDocument(id);
+      })(),
+    );
+    return;
+  }
+  for (const id of documentIds) await enqueueIngest(id);
+}
+
 export async function closeQueue() {
   await queue?.close();
   queue = undefined;

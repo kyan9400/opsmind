@@ -296,6 +296,10 @@ jobs:
       # Each spec registers its own tenant from one runner IP; lift the per-IP login/register limit.
       AUTH_RATE_LIMIT: "0"
       AI_RATE_LIMIT: "0" # and the per-user AI limit, so repeated asks/exports by one test user never hit 429
+      # Sandboxes on for the API and the web build (compose passes both), so tests/sandbox.spec.ts runs;
+      # retries create more than one from the same IP.
+      ALLOW_SANDBOX: "true"
+      SANDBOX_RATE_LIMIT: "0"
       WEB_URL: http://localhost:3000
       API_URL: http://localhost:4000
     steps:
@@ -489,6 +493,8 @@ jobs:
       MAX_UPLOAD_BYTES: "4194304"
       PG_POOL_MAX: "3"
       TRUST_PROXY: "1"
+      ALLOW_SANDBOX: "true"
+      SANDBOX_RATE_LIMIT: "2" # low, so the sandbox step can reach the 429
       # ai, as in step 4
       DB_POOL_MAX: "2"
       DB_POOL_CHECK: "true"
@@ -594,6 +600,72 @@ jobs:
           head -c 4200000 /dev/zero | tr '\0' a > "$RUNNER_TEMP/too-big.txt"
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/documents" -H "$AUTH" \
             -F "file=@$RUNNER_TEMP/too-big.txt")" = 413
+
+      - name: Sandbox - create, index in the background, upload, ask with history, limits, expiry, cleanup
+        run: |
+          status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          json='content-type: application/json'
+          curl -fsS -X POST "$API/api/v1/sandbox" > "$RUNNER_TEMP/sandbox.json"
+          # 24 hours from now (jq's date parser does not take milliseconds).
+          jq -e '(.token | length) > 20 and (.expiresAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) > (now + 23.9 * 3600)' \
+            "$RUNNER_TEMP/sandbox.json"
+          AUTH="authorization: Bearer $(jq -r .token "$RUNNER_TEMP/sandbox.json")"
+          curl -fsS "$API/api/v1/auth/me" -H "$AUTH" > "$RUNNER_TEMP/sandbox-me.json"
+          jq -e '.role == "owner" and .tenantName == "Sandbox workspace" and .expiresAt != null and (.email | endswith("@sandbox.invalid"))' \
+            "$RUNNER_TEMP/sandbox-me.json"
+          ME=$(jq -r .id "$RUNNER_TEMP/sandbox-me.json")
+          TENANT=$(jq -r .tenantId "$RUNNER_TEMP/sandbox-me.json")
+
+          # The 4 sample documents are indexed by the API process after the 201 (inline, no worker).
+          for i in $(seq 1 60); do
+            curl -fsS "$API/api/v1/documents" -H "$AUTH" > "$RUNNER_TEMP/sandbox-docs.json"
+            jq -e '(.data | length) == 4 and all(.data[]; .status == "ready")' "$RUNNER_TEMP/sandbox-docs.json" > /dev/null && break
+            sleep 2
+          done
+          jq -e '(.data | length) == 4 and all(.data[]; .status == "ready" and .chunkCount > 0)' "$RUNNER_TEMP/sandbox-docs.json"
+          curl -fsS "$API/api/v1/metrics/dashboard?days=30" -H "$AUTH" | jq -e '.kpis | length == 6'
+
+          # The visitor's own file, then a question about it and a follow-up carrying the history.
+          printf 'Bike storage\n\nBicycles go in the locked room behind reception.\nThe door code changes every Monday.\n' \
+            > "$RUNNER_TEMP/bikes.txt"
+          ID=$(curl -fsS -X POST "$API/api/v1/documents" -H "$AUTH" -F "file=@$RUNNER_TEMP/bikes.txt" | jq -er .id)
+          for i in $(seq 1 30); do
+            STATUS=$(curl -fsS "$API/api/v1/documents/$ID" -H "$AUTH" | jq -r .status)
+            [ "$STATUS" = ready ] && break
+            sleep 1
+          done
+          test "$STATUS" = ready
+          curl -fsS -X POST "$API/api/v1/ask" -H "$AUTH" -H "$json" -d '{"question":"Where do bicycles go?"}' \
+            > "$RUNNER_TEMP/sandbox-ask.json"
+          jq -e '(.answer | length) > 0 and any(.citations[]; .cited and .title == "bikes")' "$RUNNER_TEMP/sandbox-ask.json"
+          jq -c '{question: "And when does the door code change?", history: [{question: "Where do bicycles go?", answer: .answer}]}' \
+            "$RUNNER_TEMP/sandbox-ask.json" > "$RUNNER_TEMP/followup.json"
+          curl -fsS -X POST "$API/api/v1/ask" -H "$AUTH" -H "$json" -d "@$RUNNER_TEMP/followup.json" | jq -e '(.answer | length) > 0'
+          # More than 4 turns is refused before any AI call.
+          test "$(status -X POST "$API/api/v1/ask" -H "$AUTH" -H "$json" \
+            -d "$(jq -nc '{question: "q", history: [range(5) | {question: "q", answer: "a"}]}')")" = 400
+
+          # A sandbox cannot add people or change roles.
+          test "$(status -X POST "$API/api/v1/users" -H "$AUTH" -H "$json" \
+            -d '{"name":"Eve","email":"eve@example.com","password":"password123","role":"admin"}')" = 403
+          test "$(status -X PATCH "$API/api/v1/users/$ME/role" -H "$AUTH" -H "$json" -d '{"role":"viewer"}')" = 403
+
+          # SANDBOX_RATE_LIMIT=2 per IP per hour: the second is fine, the third is refused.
+          test "$(status -X POST "$API/api/v1/sandbox")" = 201
+          test "$(status -X POST "$API/api/v1/sandbox")" = 429
+
+          # Expired: the token stops working at once, and the daily cron deletes the workspace and its data.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "UPDATE tenants SET expires_at = now() - interval '1 minute' WHERE id = '$TENANT'"
+          test "$(status "$API/api/v1/documents" -H "$AUTH")" = 401
+          curl -s "$API/api/v1/documents" -H "$AUTH" | jq -e '.error == "sandbox expired"'
+          curl -fsS --max-time 240 -H "authorization: Bearer $CRON_SECRET" "$API/api/internal/cron/seed" \
+            | jq -e '.sandboxesDeleted >= 1 and .documentsFailed == 0'
+          test "$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM tenants WHERE id = '$TENANT'")" = 0
+          test "$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM documents WHERE tenant_id = '$TENANT'")" = 0
+          # The other (unexpired) sandbox and the demo workspace stay.
+          test "$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM tenants WHERE expires_at > now()")" = 1
+          curl -fsS -X POST "$API/api/v1/auth/login" -H "$json" \
+            -d "{\"email\":\"$DEMO_EMAIL\",\"password\":\"$DEMO_PASSWORD\"}" | jq -e '.token | length > 0'
 
       - name: Public-deploy switches
         run: |

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
+import { config } from "../config.js";
 import { query } from "../lib/db.js";
 import { audit } from "../lib/audit.js";
 import { HttpError } from "../lib/errors.js";
@@ -74,6 +75,9 @@ metricsRouter.get("/export", requireRole("viewer"), aiRateLimit, async (req, res
 metricsRouter.post("/import", requireRole("member"), csvUpload.single("file"), async (req, res) => {
   if (!req.file) throw new HttpError(400, "file is required (multipart field 'file')");
   const { rows, errors } = parseMetricsCsv(req.file.buffer);
+  if (req.user!.sandbox && rows.length + errors.length > config.SANDBOX_MAX_CSV_ROWS) {
+    throw new HttpError(413, `a temporary workspace imports at most ${config.SANDBOX_MAX_CSV_ROWS} rows at a time`);
+  }
   const report = { errorCount: errors.length, errors: errors.slice(0, 50) };
   if (rows.length === 0) return res.status(400).json({ error: "no valid rows to import", ...report });
 

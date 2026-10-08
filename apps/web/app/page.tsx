@@ -15,6 +15,7 @@ import {
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Logo } from "@/components/Logo";
 import { ProductMockup } from "@/components/ProductMockup";
+import { SandboxButton } from "@/components/SandboxButton";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW, REPO_URL } from "@/lib/preview";
 
@@ -121,11 +122,13 @@ export default function Home() {
               {demoEnabled ? (
                 <>
                   <DemoLoginButton size="lg" />
+                  <SandboxButton size="lg" variant="secondary" />
                   {signIn}
                 </>
               ) : (
                 <>
                   {register}
+                  <SandboxButton size="lg" variant="secondary" />
                   {signIn}
                 </>
               )}

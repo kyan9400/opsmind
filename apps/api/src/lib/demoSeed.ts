@@ -8,6 +8,7 @@
  * removes every account in the demo workspace except its owner and the viewer.
  */
 import { randomBytes } from "node:crypto";
+import type pg from "pg";
 import { z } from "zod";
 import { config } from "../config.js";
 import { hashPassword } from "./auth.js";
@@ -43,7 +44,8 @@ export function demoSeedOptions(env: NodeJS.ProcessEnv = process.env): DemoSeedO
   return { email: DEMO_EMAIL, password: DEMO_PASSWORD, tenantName: DEMO_TENANT_NAME };
 }
 
-const DOCUMENTS: { title: string; body: string }[] = [
+/** The sample documents of the demo workspace; every sandbox starts with them too. */
+export const DEMO_DOCUMENTS: { title: string; body: string }[] = [
   {
     title: "Refund and returns policy",
     body: `Refund and returns policy
@@ -81,6 +83,21 @@ Severity 3: a single customer is affected. Handle in the normal support queue.
 After a Severity 1 incident, the on-call engineer writes a postmortem within 3 business days.`,
   },
 ];
+
+/** Inserts the sample documents missing from `have` (titles) as "queued"; returns the new ids. */
+export async function insertDemoDocuments(tx: pg.PoolClient, tenantId: string, have = new Set<string>()) {
+  const added: string[] = [];
+  for (const doc of DEMO_DOCUMENTS.filter((d) => !have.has(d.title))) {
+    const body = Buffer.from(doc.body, "utf8");
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO documents (tenant_id, title, filename, mime_type, size_bytes, content)
+       VALUES ($1, $2, $3, 'text/plain', $4, $5) RETURNING id`,
+      [tenantId, doc.title, `${doc.title.toLowerCase().replace(/\s+/g, "-")}.txt`, body.length, body],
+    );
+    added.push(rows[0].id);
+  }
+  return added;
+}
 
 // Next to the migration lock (7_274_001). Vercel Cron may deliver one run twice and a manual run can
 // overlap a scheduled one; taking turns keeps the workspace and its documents from being created twice.
@@ -121,16 +138,7 @@ export async function seedDemo({ email, password, tenantName }: DemoSeedOptions)
         (d) => d.title,
       ),
     );
-    const added: string[] = [];
-    for (const doc of DOCUMENTS.filter((d) => !have.has(d.title))) {
-      const body = Buffer.from(doc.body, "utf8");
-      const { rows } = await tx.query<{ id: string }>(
-        `INSERT INTO documents (tenant_id, title, filename, mime_type, size_bytes, content)
-         VALUES ($1, $2, $3, 'text/plain', $4, $5) RETURNING id`,
-        [claimed.tenantId, doc.title, `${doc.title.toLowerCase().replace(/\s+/g, "-")}.txt`, body.length, body],
-      );
-      added.push(rows[0].id);
-    }
+    const added = await insertDemoDocuments(tx, claimed.tenantId, have);
     return { ...claimed, added };
   });
 

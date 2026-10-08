@@ -267,7 +267,8 @@ cd services/ai && uvicorn app.main:app --reload --port 8000             # AI ser
 |---|---|---|---|
 | POST | `/api/v1/auth/register` | public | Create a tenant and its owner |
 | POST | `/api/v1/auth/login` | public | Get a JWT |
-| GET | `/api/v1/auth/me` | any | Current user and tenant |
+| POST | `/api/v1/sandbox` | public | Create a temporary sandbox workspace (only with `ALLOW_SANDBOX=true`) |
+| GET | `/api/v1/auth/me` | any | Current user and tenant (`expiresAt` is set for a sandbox) |
 | GET | `/api/v1/users` | viewer+ | List tenant users |
 | POST | `/api/v1/users` | admin+ | Add a user (lower role only) |
 | PATCH | `/api/v1/users/:id/role` | admin+ | Change role (audited) |
@@ -277,7 +278,7 @@ cd services/ai && uvicorn app.main:app --reload --port 8000             # AI ser
 | GET | `/api/v1/documents/:id` | viewer+ | Document status |
 | POST | `/api/v1/documents/:id/reindex` | admin+ | Re-run ingestion |
 | DELETE | `/api/v1/documents/:id` | admin+ | Delete document and its chunks |
-| POST | `/api/v1/ask` | viewer+ | `{question, topK}` → cited answer (AI budget) |
+| POST | `/api/v1/ask` | viewer+ | `{question, topK, history?}` → cited answer; `history` = up to 4 earlier `{question, answer}` turns (AI budget) |
 | GET | `/api/v1/metrics` | viewer+ | Metric definitions |
 | GET | `/api/v1/metrics/dashboard?days&bucket&to` | viewer+ | Period vs previous period + bucketed series |
 | GET | `/api/v1/metrics/insights?days&to` | viewer+ | Anomalies + narrative summary (cached; AI budget) |
@@ -287,7 +288,7 @@ cd services/ai && uvicorn app.main:app --reload --port 8000             # AI ser
 | PATCH | `/api/v1/metrics/:id` | admin+ | Name, unit, total/average, good direction |
 | DELETE | `/api/v1/metrics/:id` | admin+ | Delete a metric and its data |
 
-Every route except register and login needs a bearer token, and the role is checked against the database on each request. Routes marked *AI budget* share the per-visitor AI rate limit and answer 429 when it runs out. Register and login share the per-IP credential limit. Emails on the reserved `.invalid` domain cannot be registered or added as users.
+Every route except register, login and sandbox needs a bearer token, and the role is checked against the database on each request. Routes marked *AI budget* share the per-visitor AI rate limit and answer 429 when it runs out. Register and login share the per-IP credential limit. Emails on the reserved `.invalid` domain cannot be registered or added as users.
 
 ## Demo workspace
 
@@ -301,6 +302,18 @@ docker compose exec -e DEMO_EMAIL=demo@opsmind.dev -e DEMO_PASSWORD='choose-one'
 - Build the web image with `NEXT_PUBLIC_DEMO_EMAIL` / `NEXT_PUBLIC_DEMO_PASSWORD` to show a one-click **Try the live demo** button (the Codespaces overlay does this).
 - The seed is safe to re-run. It reuses `DEMO_EMAIL` only if the workspace was created by the seed itself: the name matches `DEMO_TENANT_NAME` (default "Northwind Supply (demo)"), and its hidden owner and the viewer were created in the same transaction as the workspace. Otherwise it exits non-zero without changing anything, so it can never publish someone's real account.
 - Each run resets the viewer's password and role, gives the hidden owner a new random password nobody knows, and removes every other account in the workspace (`removedUsers` in its output).
+
+## Try it with your own data
+
+The demo workspace is read-only and shared. **Try it with your own data** (landing and login pages) gives a visitor a private **sandbox workspace** instead: the same 180 days of KPIs and four sample documents, but the visitor is its owner, so they can upload their own files, import a CSV and ask about them. It is deleted after 24 hours, and every dashboard page says how long it has left.
+
+- `POST /api/v1/sandbox` creates the workspace, an owner with an unguessable `@sandbox.invalid` address and a random password nobody knows, and returns `{ token, expiresAt }`. The token is the only way in.
+- It answers right away; the sample documents are indexed in the background (the worker, or the API process with `INGEST_MODE=inline`), and the Documents page shows them becoming ready. Waiting would put a cold AI service and its retries inside the 300-second Vercel limit for nothing.
+- Abuse limits: `SANDBOX_RATE_LIMIT` creations per IP per hour (default 3), at most `SANDBOX_MAX_ACTIVE` live sandboxes (default 50, because the per-IP counter is per instance on serverless hosts), `SANDBOX_MAX_DOCUMENTS` documents (default 10, samples included), `SANDBOX_MAX_CSV_ROWS` rows per import (default 5,000) and the usual `MAX_UPLOAD_BYTES` and AI budget. A sandbox cannot add users or change roles (403).
+- Expiry: `tenants.expires_at` (migration `004`, empty for normal workspaces). From that moment its token gets 401 `sandbox expired`; the daily cron (`/api/internal/cron/seed`) deletes expired sandboxes, and everything in them goes with the tenant (`ON DELETE CASCADE`).
+- Off by default. Turn it on with `ALLOW_SANDBOX=true` on the API and `NEXT_PUBLIC_SANDBOX=true` for the web build (Docker Compose passes `ALLOW_SANDBOX` to both). The static preview never shows it.
+
+**Ask as a conversation.** The Ask page is a chat: follow-up questions are sent with the last 4 turns as `history` (2,000 characters per field), so "and for express?" is understood. The conversation stays for the browser tab (sessionStorage), answers appear word by word (instantly with reduced motion), and there are **New chat** and copy buttons.
 
 The UI is available in **English, Russian and Arabic**. Arabic uses a full right-to-left layout, and the language is rendered server-side, so the first paint is already correct.
 
@@ -324,7 +337,8 @@ CI runs every suite against real Postgres + Redis service containers. It then st
 
 **Browser tests** ([`e2e/`](e2e)) drive the real UI with Playwright against the full `docker compose` stack. Each spec creates its own workspace and selects elements by `data-testid`, so copy changes and translations don't break them:
 - **auth**: register → dashboard → sign out → sign in; a wrong password shows an error
-- **documents + ask**: upload a policy → wait for indexing → cited answer
+- **documents + ask**: upload a policy → wait for indexing → cited answer; a follow-up question is sent with the history, survives a reload, and **New chat** clears it
+- **sandbox** (with `ALLOW_SANDBOX=true`): create a sandbox → upload a text file → wait until it is ready → ask about it
 - **analytics**: demo KPIs, anomalies, 90-day weekly view, table view, Excel download
 - **rbac**: a viewer sees no upload, import or demo controls, and the API refuses them too
 - **i18n**: Russian and Arabic (RTL) switch `<html lang/dir>` and survive a reload

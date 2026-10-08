@@ -12,6 +12,7 @@ import { documentsRouter } from "./routes/documents.js";
 import { askRouter } from "./routes/ask.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { cronRouter } from "./routes/cron.js";
+import { sandboxRouter } from "./routes/sandbox.js";
 import { registry } from "./lib/apiMetrics.js";
 import { httpMetrics, markMount } from "./lib/telemetry.js";
 
@@ -53,6 +54,8 @@ export function createApp() {
   app.use("/api/v1/documents", markMount, documentsRouter);
   app.use("/api/v1/ask", markMount, askRouter);
   app.use("/api/v1/metrics", markMount, metricsRouter);
+  // Answers 403 unless ALLOW_SANDBOX=true.
+  app.use("/api/v1/sandbox", markMount, sandboxRouter);
   // Scheduled jobs (Vercel Cron). Without a CRON_SECRET the routes do not exist.
   if (config.CRON_SECRET) app.use("/api/internal/cron", markMount, cronRouter);
 
