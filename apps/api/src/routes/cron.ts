@@ -27,6 +27,7 @@ cronRouter.use(requireCronSecret);
 // (last 7/30/90/180 days) drift into the past. The run also keeps a free database from being archived.
 // Expired sandboxes go first, so a misconfigured demo login (503) cannot keep them around.
 // Hobby plans allow only daily crons, so the cleanup shares this one instead of a schedule of its own.
+// Each sandbox creation also deletes a few expired ones; this run is the backstop on quiet days.
 cronRouter.get("/seed", async (_req, res) => {
   const sandboxesDeleted = await deleteExpiredSandboxes();
   res.json({ ...(await seedDemo(demoSeedOptions())), sandboxesDeleted });

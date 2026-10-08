@@ -36,7 +36,12 @@ steps below. Everything else stays the same.
 
 - Supabase pauses a free project after 7 days without activity. The daily Vercel cron job keeps it
   awake. If it was paused anyway, click **Restore project** in the dashboard.
-- The free database holds 500 MB; the demo uses a few MB.
+- The free database holds 500 MB; the demo uses a few MB. Above 500 MB Supabase makes the whole project
+  read-only, and then even the demo login fails (every sign-in writes an audit row). Sandboxes cannot get
+  it there: each holds at most 1 MB of files (`SANDBOX_MAX_BYTES`), roughly 15 MB of text with its chunks,
+  embeddings and indexes; at most 20 exist at once (`SANDBOX_MAX_ACTIVE`); and above 350 MB
+  (`SANDBOX_DB_BRAKE_BYTES`) the api stops creating sandboxes and taking sandbox uploads until the size
+  falls again. The brake also covers PDFs, whose compressed text can be larger than the file.
 
 ## Common mistakes
 

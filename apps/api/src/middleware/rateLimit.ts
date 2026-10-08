@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express";
 import { rateLimit } from "express-rate-limit";
 import { config } from "../config.js";
+import { assertDatabaseHasRoom } from "../lib/sandboxLimits.js";
 
 /**
  * Budget for endpoints that call the AI service, so nobody can burn the LLM quota through the public
@@ -42,3 +43,32 @@ const perUser = rateLimit({
 // Visitor budget first, so requests it already refused do not use up the account-wide ceiling.
 export const aiRateLimit: RequestHandler = (req, res, next) =>
   perVisitor(req, res, (err?: unknown) => (err ? next(err) : perUser(req, res, next)));
+
+/**
+ * Uploads, re-indexes, CSV imports and demo loads by sandbox members: SANDBOX_WRITE_RATE_LIMIT per
+ * sandbox per hour. Each of them runs extraction and embedding on the host's small CPU quota, or writes
+ * rows into the free database, and the sandbox owner is an anonymous visitor. In memory, so per
+ * instance; reserveSandboxWrite() repeats the count in the database inside the write's transaction and
+ * adds the cap for all sandboxes together (SANDBOX_GLOBAL_WRITE_RATE_LIMIT).
+ * Mount it after requireAuth and before any body parsing, so a refused request is never read.
+ */
+const sandboxWrites = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  // Read per request, so tests can change it without reloading the app.
+  limit: () => config.SANDBOX_WRITE_RATE_LIMIT,
+  skip: (req) => !req.user?.sandbox || config.SANDBOX_WRITE_RATE_LIMIT === 0,
+  keyGenerator: (req) => req.user!.tenantId,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "too many uploads and imports in this temporary workspace, try again later" },
+});
+
+/** The global brake on the database size (assertDatabaseHasRoom), for sandbox members only. */
+const sandboxDatabaseBrake: RequestHandler = (req, _res, next) => {
+  if (!req.user?.sandbox) return next();
+  assertDatabaseHasRoom().then(() => next(), next);
+};
+
+/** Guard for every write a sandbox member can make: the hourly budget first, then the database brake. */
+export const sandboxWriteGuard: RequestHandler = (req, res, next) =>
+  sandboxWrites(req, res, (err?: unknown) => (err ? next(err) : sandboxDatabaseBrake(req, res, next)));

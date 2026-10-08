@@ -1,33 +1,30 @@
 import { Router } from "express";
-import multer from "multer";
 import { config } from "../config.js";
-import { query } from "../lib/db.js";
+import { query, withTx } from "../lib/db.js";
 import { audit } from "../lib/audit.js";
 import { HttpError } from "../lib/errors.js";
 import { MAX_CSV_BYTES, parseMetricsCsv } from "../lib/csv.js";
 import { todayUtc } from "../lib/dates.js";
-import { decodeFilename } from "../lib/files.js";
+import { decodeFilename, singleFileUpload } from "../lib/files.js";
 import { generateDemoData } from "../lib/demoData.js";
 import { buildPdf, buildXlsx } from "../lib/exporters.js";
 import { getInsights, type Insights } from "../lib/insights.js";
-import { getDailySeries, getDashboard, importDemo, importRows, listMetrics } from "../lib/metrics.js";
+import { getDailySeries, getDashboard, importDemoTx, importRowsTx, listMetrics } from "../lib/metrics.js";
 import { bumpDataVersion } from "../lib/redis.js";
+import { reserveSandboxWrite } from "../lib/sandboxLimits.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { aiRateLimit } from "../middleware/rateLimit.js";
+import { aiRateLimit, sandboxWriteGuard } from "../middleware/rateLimit.js";
 import { DashboardQuery, ExportQuery, UpdateMetricBody } from "../schemas.js";
 
 export const metricsRouter = Router();
 metricsRouter.use(requireAuth);
 
-const csvUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_CSV_BYTES, files: 1 },
-  fileFilter: (_req, file, cb) => {
-    file.originalname = decodeFilename(file.originalname);
-    if (/\.(csv|tsv|txt)$/i.test(file.originalname)) cb(null, true);
-    else cb(new HttpError(415, "upload a .csv file with date, metric and value columns"));
-  },
-});
+// Sandbox members get SANDBOX_MAX_FILE_BYTES instead, which also bounds the parsing work.
+const csvUpload = singleFileUpload((_req, file, cb) => {
+  file.originalname = decodeFilename(file.originalname);
+  if (/\.(csv|tsv|txt)$/i.test(file.originalname)) cb(null, true);
+  else cb(new HttpError(415, "upload a .csv file with date, metric and value columns"));
+}, MAX_CSV_BYTES);
 
 metricsRouter.get("/", requireRole("viewer"), async (req, res) => {
   res.json({ data: await listMetrics(req.user!.tenantId) });
@@ -72,31 +69,42 @@ metricsRouter.get("/export", requireRole("viewer"), aiRateLimit, async (req, res
     .send(file);
 });
 
-metricsRouter.post("/import", requireRole("member"), csvUpload.single("file"), async (req, res) => {
+metricsRouter.post("/import", requireRole("member"), sandboxWriteGuard, csvUpload, async (req, res) => {
   if (!req.file) throw new HttpError(400, "file is required (multipart field 'file')");
+  const { tenantId, sub, sandbox } = req.user!;
   const { rows, errors } = parseMetricsCsv(req.file.buffer);
-  if (req.user!.sandbox && rows.length + errors.length > config.SANDBOX_MAX_CSV_ROWS) {
-    throw new HttpError(413, `a temporary workspace imports at most ${config.SANDBOX_MAX_CSV_ROWS} rows at a time`);
+  // A file this long can never fit; the exact check against what the sandbox holds runs in the transaction.
+  if (sandbox && rows.length + errors.length > config.SANDBOX_MAX_CSV_ROWS) {
+    throw new HttpError(413, `a temporary workspace holds at most ${config.SANDBOX_MAX_CSV_ROWS} KPI data points`);
   }
   const report = { errorCount: errors.length, errors: errors.slice(0, 50) };
   if (rows.length === 0) return res.status(400).json({ error: "no valid rows to import", ...report });
 
-  const imported = await importRows(req.user!.tenantId, rows);
-  await bumpDataVersion(req.user!.tenantId);
-  await audit({
-    tenantId: req.user!.tenantId,
-    actorId: req.user!.sub,
-    action: "metrics.imported",
-    target: req.file.originalname,
-    meta: { ...imported, skipped: errors.length },
+  const filename = req.file.originalname;
+  const imported = await withTx(async (tx) => {
+    if (sandbox) await reserveSandboxWrite(tx, tenantId);
+    const result = await importRowsTx(tx, tenantId, rows, {
+      maxPoints: sandbox ? config.SANDBOX_MAX_CSV_ROWS : undefined,
+    });
+    const meta = { ...result, skipped: errors.length };
+    await audit({ tenantId, actorId: sub, action: "metrics.imported", target: filename, meta }, tx);
+    return result;
   });
+  await bumpDataVersion(tenantId);
   res.status(201).json({ imported, ...report });
 });
 
-metricsRouter.post("/demo", requireRole("admin"), async (req, res) => {
-  const imported = await importDemo(req.user!.tenantId, generateDemoData(todayUtc()));
-  await bumpDataVersion(req.user!.tenantId);
-  await audit({ tenantId: req.user!.tenantId, actorId: req.user!.sub, action: "metrics.demo_loaded", meta: imported });
+metricsRouter.post("/demo", requireRole("admin"), sandboxWriteGuard, async (req, res) => {
+  const { tenantId, sub, sandbox } = req.user!;
+  const imported = await withTx(async (tx) => {
+    if (sandbox) await reserveSandboxWrite(tx, tenantId);
+    const result = await importDemoTx(tx, tenantId, generateDemoData(todayUtc()), {
+      maxPoints: sandbox ? config.SANDBOX_MAX_CSV_ROWS : undefined,
+    });
+    await audit({ tenantId, actorId: sub, action: "metrics.demo_loaded", meta: result }, tx);
+    return result;
+  });
+  await bumpDataVersion(tenantId);
   res.status(201).json({ imported });
 });
 

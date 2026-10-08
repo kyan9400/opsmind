@@ -75,3 +75,18 @@ def test_empty_document_is_marked_failed():
     with get_pool().connection() as conn:
         status, error = conn.execute("SELECT status, error FROM documents WHERE id = %s", (doc,)).fetchone()
     assert status == "failed" and "no extractable text" in error
+
+
+def test_document_over_the_text_limit_is_marked_failed():
+    client = TestClient(app)
+    with get_pool().connection() as conn:
+        _, doc = make_tenant_with_document(conn, "Hooli", "word " * 50_000)  # 250,000 characters
+    res = client.post("/v1/ingest", json={"document_id": doc}, headers=HEADERS)
+    assert res.status_code == 422 and res.json()["detail"].startswith("document too long")
+    with get_pool().connection() as conn:
+        status, error, chunks = conn.execute(
+            "SELECT d.status, d.error, (SELECT count(*) FROM chunks c WHERE c.document_id = d.id) "
+            "FROM documents d WHERE d.id = %s",
+            (doc,),
+        ).fetchone()
+    assert status == "failed" and error.startswith("document too long") and chunks == 0
