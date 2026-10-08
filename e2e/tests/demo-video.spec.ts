@@ -76,7 +76,8 @@ test("README demo tour", { tag: "@demo" }, async ({ browser, baseURL }, testInfo
     await tour.type(page.getByTestId("ask-input"), REFUND_QUESTION, 35);
     await tour.click(page.getByTestId("ask-submit"));
     const answer = page.getByTestId("ask-answer");
-    await expect(answer).toBeVisible({ timeout: 30_000 });
+    // The video keeps the word-by-word reveal; wait until it has finished before moving on.
+    await expect(answer).toHaveAttribute("data-typing", "done", { timeout: 30_000 });
     await expect(answer).toContainText("30");
     await expect(page.getByTestId("ask-source").first()).toBeVisible();
     // Keep the answer card at the top and bring as many source cards as fit into view below it.
