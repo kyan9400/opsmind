@@ -229,12 +229,28 @@ def cited_numbers(answer: str, n_sources: int) -> set[int]:
     return {int(m) for m in re.findall(r"\[(\d+)\]", answer) if 1 <= int(m) <= n_sources}
 
 
+# What is left of a question that names no topic: "how long?", "what else?", "как долго?", "وكم؟".
+QUESTION_ONLY = frozenset(
+    "long often soon else more anything tell then долго часто скоро ещё еще подробнее كم".split()
+)
+NON_TOPIC = STOPWORDS | BACK_REFERENCES | FOLLOW_UP_OPENERS | QUESTION_ONLY
+
+
+def topic_words(text: str) -> set[str]:
+    """The words that say what a question is about: no stopwords, back-references, connectors or
+    question-only words.
+
+    Arabic joins "و" (and) to the next word, so "وماذا" and "ومتى" count as the stopwords they hold.
+    """
+    return {w for w in tokenize(text) if w not in NON_TOPIC and not (w[0] == "و" and w[1:] in NON_TOPIC)}
+
+
 def extractive_answer(
     question: str, hits: list[Hit], max_sentences: int = 3, min_relative: float = 0.5
 ) -> str:
-    # Content words only: function words ("how", "many", "for") would otherwise pull in
+    # Topic words only: function words ("how", "many", "for") would otherwise pull in
     # unrelated sentences that merely share them.
-    q = set(tokenize(question)) - STOPWORDS
+    q = topic_words(question)
     scored: list[tuple[float, int, str]] = []
     for i, h in enumerate(hits, 1):
         title = set(tokenize(h.title))
@@ -255,14 +271,27 @@ def extractive_answer(
     return " ".join(f"{sentence} [{i}]" for _, i, sentence in best)
 
 
+def answer_extractively(question: str, hits: list[Hit], query: str | None = None) -> str:
+    """The extractive answer to the latest question; `query` is the combined retrieval query.
+
+    Sentences are matched against the new question's own topic words. Against the combined query,
+    the longer previous question outscores a short follow-up: "and for damaged items?" after a refund
+    question would get the refund sentence again. The combined query is used only when the new
+    question names no topic of its own ("why?", "а когда?", "ومتى؟").
+    """
+    if query and not topic_words(question):
+        return extractive_answer(query, hits)
+    return extractive_answer(question, hits)
+
+
 def generate_answer(
     question: str, hits: list[Hit], history: Sequence[Turn] = (), query: str | None = None
 ) -> str:
-    """`query` is the retrieval query: extractive mode matches sentences against it."""
+    """`query` is the retrieval query (the question, or the question plus the previous one)."""
     if not hits:
         return NO_ANSWER
     if settings.llm_provider == "extractive":
-        return extractive_answer(query or question, hits)
+        return answer_extractively(question, hits, query)
     return chat(SYSTEM_PROMPT, f"Sources:\n{format_sources(hits)}\n\nQuestion: {question}", history=history)
 
 
@@ -275,4 +304,4 @@ def answer_with_fallback(
     except Exception as exc:
         # One line, no traceback: on a free tier a 429 is routine, not an incident.
         log.warning("llm provider %s failed, using extractive answer: %r", settings.llm_provider, exc)
-        return extractive_answer(query or question, hits), FALLBACK_PROVIDER
+        return answer_extractively(question, hits, query), FALLBACK_PROVIDER

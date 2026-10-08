@@ -344,3 +344,80 @@ def test_thinking_is_stripped_for_every_provider(monkeypatch):
     with pytest.raises(ValueError, match="empty completion"):
         llm.chat("s", "u")
 
+
+# ---------------------------------------------------------------- extractive follow-ups
+
+SUPPORT_HITS = [
+    Hit(chunk_id=1, document_id="d1", title="refund policy", chunk_index=0, score=0.03,
+        content="Customers can request a full refund within 30 days of delivery."),
+    Hit(chunk_id=2, document_id="d2", title="shipping policy", chunk_index=0, score=0.02,
+        content="Orders placed before 14:00 ship the same business day."),
+    Hit(chunk_id=3, document_id="d3", title="возвраты", chunk_index=0, score=0.02,
+        content="У клиентов есть 30 дней на возврат денег после доставки. "
+                "Заказы отправляются в тот же рабочий день, если оформлены до 14:00."),
+    Hit(chunk_id=4, document_id="d4", title="الاسترداد", chunk_index=0, score=0.02,
+        content="يمكن للعملاء طلب استرداد المبلغ خلال 30 يوما من التسليم. "
+                "يتم شحن الطلبات في يوم العمل نفسه إذا تمت قبل الساعة 14:00."),
+]
+
+
+@pytest.mark.parametrize(
+    ("previous", "question", "expected", "previous_topic"),
+    [
+        (
+            "How many days do customers have to request a refund?",
+            "And how fast do orders ship?",
+            "Orders placed before 14:00 ship the same business day. [2]",
+            "refund",
+        ),
+        (
+            "Сколько дней есть у клиентов на возврат денег после доставки?",
+            "А как быстро отправляются заказы?",
+            "Заказы отправляются в тот же рабочий день, если оформлены до 14:00. [3]",
+            "возврат",
+        ),
+        (
+            "كم يوما لدى العملاء لطلب استرداد المبلغ؟",
+            "وماذا عن سرعة شحن الطلبات؟",
+            "يتم شحن الطلبات في يوم العمل نفسه إذا تمت قبل الساعة 14:00. [4]",
+            "استرداد",
+        ),
+    ],
+    ids=["en", "ru", "ar"],
+)
+def test_extractive_follow_up_answers_the_new_question(previous, question, expected, previous_topic):
+    history = [llm.Turn(previous, "...")]
+    query = llm.build_retrieval_query(question, history)
+    assert query == f"{question} {previous}"  # retrieval still sees both questions
+    # Matched against the combined query, the previous question's sentence comes first.
+    assert previous_topic in llm.extractive_answer(query, SUPPORT_HITS).split(" [")[0]
+
+    answer = llm.generate_answer(question, SUPPORT_HITS, history, query)
+    assert answer == expected
+    # The fallback after a failed LLM call answers the same way.
+    assert llm.answer_extractively(question, SUPPORT_HITS, query) == expected
+
+
+@pytest.mark.parametrize(
+    ("previous", "question", "expected"),
+    [
+        ("How many days do customers have to request a refund?", "Why?", "refund within 30 days"),
+        ("How many days do customers have to request a refund?", "How long?", "refund within 30 days"),
+        ("Сколько дней есть у клиентов на возврат денег после доставки?", "А когда?", "30 дней на возврат"),
+        ("Сколько дней есть у клиентов на возврат денег после доставки?", "Как долго?", "30 дней на возврат"),
+        ("كم يوما لدى العملاء لطلب استرداد المبلغ؟", "ومتى؟", "استرداد المبلغ خلال 30 يوما"),
+        ("كم يوما لدى العملاء لطلب استرداد المبلغ؟", "وكم؟", "استرداد المبلغ خلال 30 يوما"),
+    ],
+    ids=["en-why", "en-how-long", "ru-when", "ru-how-long", "ar-when", "ar-how-many"],
+)
+def test_follow_up_without_a_topic_of_its_own_uses_the_combined_query(previous, question, expected):
+    history = [llm.Turn(previous, "...")]
+    query = llm.build_retrieval_query(question, history)
+    assert llm.topic_words(question) == set()
+    assert expected in llm.generate_answer(question, SUPPORT_HITS, history, query)
+
+
+def test_topic_words_drop_connectors_back_references_and_joined_arabic_and():
+    assert llm.topic_words("And does it apply to them too?") == {"apply", "too"}
+    assert llm.topic_words("А это касается их подарочных карт?") == {"касается", "подарочных", "карт"}
+    assert llm.topic_words("وماذا عن وقت الشحن؟") == {"وقت", "الشحن"}  # "وقت" (time) keeps its و
