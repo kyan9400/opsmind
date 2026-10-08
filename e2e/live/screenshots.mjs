@@ -15,6 +15,8 @@ await shot("1-landing");
 await page.getByTestId("demo-login").click();
 await page.waitForURL("**/dashboard/analytics");
 await page.getByTestId("kpi-card").first().waitFor();
+// Wait for the AI summary too, so the screenshot shows insights and anomaly markers, not the loading state.
+await page.getByTestId("insights-summary").waitFor({ timeout: 30_000 });
 await page.waitForLoadState("networkidle");
 await shot("2-analytics");
 await page.getByTestId("nav-documents").click();

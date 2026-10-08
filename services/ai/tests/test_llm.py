@@ -14,3 +14,13 @@ def test_extractive_answer_skips_sentences_that_share_only_function_words():
     answer = extractive_answer("How many days do customers have to request a refund?", hits)
     assert "30 days of delivery" in answer and "[1]" in answer
     assert "Severity" not in answer and "[2]" not in answer
+
+
+def test_extractive_answer_skips_the_document_title():
+    from app.llm import extractive_answer
+    from app.retrieval import Hit
+
+    hit = Hit(chunk_id=1, document_id="d1", title="Refund and returns policy", chunk_index=0, score=0.03,
+              content="Refund and returns policy\n\nCustomers can request a full refund within 30 days of delivery.")
+    answer = extractive_answer("How long do customers have to request a refund?", [hit])
+    assert answer == "Customers can request a full refund within 30 days of delivery. [1]"

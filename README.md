@@ -7,6 +7,8 @@
 
 ![Demo tour: sign in to the demo, inspect an anomaly on the analytics dashboard, get a cited answer, switch to Arabic (right-to-left) and back](docs/demo.gif)
 
+**Live demo:** **[opsmind-demo.vercel.app](https://opsmind-demo.vercel.app)**. Click **Try the live demo** to sign in as a read-only viewer. It is the real stack running serverless: Next.js and the Express API on Vercel, the Python AI service on Vercel, and Postgres + pgvector on Supabase ([setup](deploy/vercel/README.md)). It is checked daily by the [live check](.github/workflows/live-check.yml). Some networks in Russia block `*.vercel.app`; if it does not open, use the preview below.
+
 **Interactive preview:** [hass-ak.sourcecraft.site/opsmind](https://hass-ak.sourcecraft.site/opsmind/). It opens instantly with recorded demo data and no server, and it is clearly labelled as a preview ([how it works](deploy/sourcecraft/README.md)).
 
 **Try the full system:** open the repo in [GitHub Codespaces](https://codespaces.new/kyan9400/opsmind?quickstart=1) and sign in with **Try the live demo** or `demo@opsmind.dev` / `opsmind-demo` (a read-only viewer). The first start builds the images and takes a few minutes, on your own free Codespaces quota ([details](.devcontainer/README.md)). Or [run it locally](#run-it-locally) with Docker.
