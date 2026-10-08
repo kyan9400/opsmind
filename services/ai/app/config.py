@@ -1,5 +1,7 @@
+import json
 import os
 from dataclasses import dataclass, field
+from typing import Any
 
 
 def _env(name: str, default: str) -> str:
@@ -38,6 +40,20 @@ def _float(name: str, default: float) -> float:
         raise ValueError(f"{name} must be a number, got {value!r}") from None
 
 
+def _json_object(name: str) -> dict[str, Any]:
+    """A JSON object; unset or empty means {}. The value is not echoed in the error: it may hold a secret."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name} must be a JSON object: {exc.msg} at position {exc.pos}") from None
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{name} must be a JSON object, got {type(parsed).__name__}")
+    return parsed
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str = field(default_factory=lambda: _env("DATABASE_URL", "postgres://opsmind:opsmind@localhost:5432/opsmind"))
@@ -55,7 +71,13 @@ class Settings:
     llm_api_key: str = field(default_factory=lambda: _env("LLM_API_KEY", ""))
     llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", ""))
     llm_timeout_s: float = field(default_factory=lambda: _float("LLM_TIMEOUT_S", 30.0))
-    llm_max_tokens: int = field(default_factory=lambda: _int("LLM_MAX_TOKENS", 400))
+    # Room for a few cited sentences in Russian or Arabic (more tokens per word than English) plus some
+    # slack, because on reasoning models any thinking the host leaves on is counted in this budget too.
+    llm_max_tokens: int = field(default_factory=lambda: _int("LLM_MAX_TOKENS", 1024))
+    # Merged into every openai-compatible request body, for host-specific switches. Opt-in, because
+    # some hosts reject fields they do not know. Cloudflare Workers AI with Gemma 4 (thinking is on
+    # by default there): {"chat_template_kwargs": {"enable_thinking": false}}.
+    llm_extra_body: dict[str, Any] = field(default_factory=lambda: _json_object("LLM_EXTRA_BODY"))
 
     # Ingest limits: an upload's text is decompressed (PDF), chunked and embedded, and every chunk
     # stores a 768-d vector plus index entries (~8 KB). These keep one upload from taking minutes of

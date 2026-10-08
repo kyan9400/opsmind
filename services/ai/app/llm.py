@@ -66,17 +66,48 @@ def _openai_compatible(system: str, messages: list[Message], timeout: Timeout | 
             "model": settings.llm_model,
             "temperature": 0,
             # Bounds latency and free-tier token spend; answers are a few cited sentences.
+            # (max_tokens, not max_completion_tokens: every compatible host still accepts it.)
             "max_tokens": settings.llm_max_tokens,
+            **settings.llm_extra_body,
             "messages": [{"role": "system", "content": system}, *messages],
         },
         timeout=settings.llm_timeout_s if timeout is None else timeout,
     )
     res.raise_for_status()
-    content = res.json()["choices"][0]["message"]["content"]
-    # Some hosts return 200 with null/empty content when they cut a reply short; treat it as a failure.
-    if not content or not content.strip():
-        raise ValueError("empty completion")
+    choice = res.json()["choices"][0]
+    # Reasoning models return their thinking in a separate field (reasoning / reasoning_content),
+    # which is never read, or inline in content, which strip_reasoning removes.
+    content = strip_reasoning(choice["message"].get("content") or "")
+    finish = choice.get("finish_reason")
+    # Hosts return 200 with null/empty content when thinking used up the whole token budget.
+    if not content:
+        raise ValueError(f"empty completion (finish_reason={finish})")
+    if finish == "length":
+        # Cut off at max_tokens. Without a citation it cannot be checked against the sources, so the
+        # caller falls back (extractive answer, template summary); with one, say that it stops short.
+        log.warning("completion hit max_tokens=%s", settings.llm_max_tokens)
+        if not re.search(r"\[\d+\]", content):
+            raise ValueError("completion cut off at max_tokens before citing a source")
+        return f"{content} …"
     return content
+
+
+# Inline thinking: <think>/<thinking> blocks (Qwen, DeepSeek and most open models) and Gemma 4's
+# "<|channel>thought ... <channel|>". An unclosed block means the reply was cut off mid-thought.
+_THINKING = re.compile(
+    r"<(think|thinking)>.*?(?:</\1>|\Z)|<\|channel>thought.*?(?:<channel\|>|(?=<\|channel>)|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+# Some chat templates open the block in the prompt, so the reply holds only the closing tag.
+_THINKING_CLOSE = re.compile(r"^.*?(?:</think>|</thinking>|<channel\|>)", re.DOTALL | re.IGNORECASE)
+_CHANNEL_MARKER = re.compile(r"<\|channel>\w*|<channel\|>")
+
+
+def strip_reasoning(text: str) -> str:
+    """The reply without any thinking a model wrote inline, so only the answer reaches the user."""
+    text = _THINKING.sub("", text)
+    text = _THINKING_CLOSE.sub("", text, count=1)
+    return _CHANNEL_MARKER.sub("", text).strip()
 
 
 def _anthropic(system: str, messages: list[Message], timeout: Timeout = 60) -> str:
@@ -141,7 +172,12 @@ def chat(
         messages += [{"role": "user", "content": turn.question}, {"role": "assistant", "content": turn.answer}]
     messages.append({"role": "user", "content": user})
     with timed(LLM_DURATION, provider=settings.llm_provider, kind=kind):
-        return fn(system, messages) if timeout is None else fn(system, messages, timeout)
+        reply = fn(system, messages) if timeout is None else fn(system, messages, timeout)
+    # Local reasoning models (Ollama's qwen3, deepseek-r1) also write <think> blocks into the reply.
+    text = strip_reasoning(reply or "")
+    if not text:
+        raise ValueError("empty completion")
+    return text
 
 
 # ---------------------------------------------------------------- follow-ups

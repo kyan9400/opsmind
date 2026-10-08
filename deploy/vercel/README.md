@@ -234,15 +234,44 @@ have free tiers.
    | `LLM_API_KEY` | your key | secret |
    | `LLM_MODEL` | a chat model your provider lists, e.g. `llama-3.1-8b-instant` | |
    | `LLM_TIMEOUT_S` | `30` | optional, seconds; this is the default |
-   | `LLM_MAX_TOKENS` | `400` | optional, answer length limit; this is the default |
+   | `LLM_MAX_TOKENS` | `1024` | optional, answer length limit; this is the default |
+   | `LLM_EXTRA_BODY` | unset | optional JSON object added to every request (see Cloudflare below) |
 
    **The key goes only into the ai project.** The api and web projects never call the model and must not
    get `LLM_API_KEY`. Never commit the key or paste it into an issue or chat.
 3. **Redeploy** the ai project. `AI_URL/health` now shows `"llm":"openai-compatible"`.
 
+**Cloudflare Workers AI (Gemma 4).** Use these values instead of the Groq ones (the key is a Workers AI
+API token; the account ID is on the Workers AI dashboard page):
+
+| Name | Value |
+| --- | --- |
+| `LLM_BASE_URL` | `https://api.cloudflare.com/client/v4/accounts/<account id>/ai/v1` |
+| `LLM_MODEL` | `@cf/google/gemma-4-26b-a4b-it` |
+| `LLM_EXTRA_BODY` | `{"chat_template_kwargs":{"enable_thinking":false}}` |
+
+Gemma 4 on Workers AI thinks before it answers unless `enable_thinking` is `false` (Cloudflare's model
+schema, checked October 2026). The thinking counts against `LLM_MAX_TOKENS` and the free daily neurons,
+and a long thought can use the whole budget and leave no answer. Before you rely on it, send one request
+from your own computer and check that `choices[0].message.content` holds the answer, not the thinking:
+
+```bash
+curl -s "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/ai/v1/chat/completions" \
+  -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+  -d '{"model":"@cf/google/gemma-4-26b-a4b-it","max_tokens":200,
+       "chat_template_kwargs":{"enable_thinking":false},
+       "messages":[{"role":"user","content":"Say hello in one sentence."}]}'
+```
+
+`LLM_EXTRA_BODY` is only for hosts that know the fields in it; others (Groq, for example) may answer 400
+to unknown fields, so leave it unset there.
+
 If the provider fails, times out or hits its free-tier rate limit, the question still gets an answer: the
-ai service falls back to the extractive answer and reports `"provider": "extractive-fallback"`. The
-analytics summary falls back to its template the same way. So a used-up free quota never breaks the demo.
+ai service falls back to the extractive answer and reports `"provider": "extractive-fallback"`. The same
+happens when the reply is empty, or is cut off at `LLM_MAX_TOKENS` before it cites a source (a cut-off
+reply that does cite one is shown with a trailing "…"). Thinking a model writes into the reply
+(`<think>…</think>`, Gemma's thought channel) is removed. The analytics summary falls back to its
+template the same way. So a used-up free quota never breaks the demo.
 
 ## Everyday use
 
@@ -328,6 +357,7 @@ it and has no fix yet).
 | `INGEST_MAX_CHARS` | ai | `200000` | default | Characters of extracted text per document; above it the document fails with "document too long". `0`: no limit. |
 | `INGEST_MAX_CHUNKS` | ai | `300` | default | Chunks per document (each stores a vector and index entries, ~8 KB). `0`: no limit. |
 | `INGEST_MAX_PDF_PAGES` | ai | `50` | default | PDF pages, checked before any text is extracted. `0`: no limit. |
+| `LLM_EXTRA_BODY` | ai | unset | `{"chat_template_kwargs":{"enable_thinking":false}}` with Cloudflare | JSON object added to every `openai-compatible` request. |
 
 Files: `apps/api/vercel.json` (Express preset, `dist/` entry, Frankfurt, daily cron, PDF fonts),
 `services/ai/vercel.json` and `services/ai/index.py` (FastAPI entry, Frankfurt),

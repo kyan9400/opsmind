@@ -226,3 +226,121 @@ def test_history_at_the_limits_is_accepted(fake_search, monkeypatch):
         "/v1/ask", headers=HEADERS, json={"tenant_id": TENANT, "question": "refund?", "history": history}
     )
     assert res.status_code == 200
+
+
+# ---------------------------------------------------------------- reasoning models (Cloudflare Gemma 4)
+
+
+def reply(content, finish="stop", **message):
+    """A Cloudflare-shaped completion: content may be null, thinking may sit in its own field."""
+    return lambda request: httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"role": "assistant", "content": content, **message}, "finish_reason": finish}],
+            "usage": {"completion_tokens": 1024, "completion_tokens_details": {"reasoning_tokens": 1000}},
+        },
+    )
+
+
+def test_default_request_has_no_extra_fields_and_a_larger_token_budget(compatible, monkeypatch):
+    monkeypatch.delenv("LLM_MAX_TOKENS")
+    monkeypatch.delenv("LLM_EXTRA_BODY", raising=False)
+    monkeypatch.setattr(llm, "settings", Settings())
+    seen = compatible(ok("30 days [1]."))
+    llm.generate_answer("refund?", HITS)
+    body = json.loads(seen[0].content)
+    assert set(body) == {"model", "temperature", "max_tokens", "messages"}
+    assert body["max_tokens"] == 1024
+
+
+def test_extra_body_is_merged_into_the_request(compatible, monkeypatch):
+    monkeypatch.setenv(
+        "LLM_EXTRA_BODY",
+        '{"chat_template_kwargs": {"enable_thinking": false}, "max_completion_tokens": 900, "messages": []}',
+    )
+    monkeypatch.setattr(llm, "settings", Settings())
+    seen = compatible(ok("30 days [1]."))
+    assert llm.generate_answer("refund?", HITS) == "30 days [1]."
+    body = json.loads(seen[0].content)
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert body["max_completion_tokens"] == 900 and body["max_tokens"] == 123
+    # The prompt cannot be replaced from the environment.
+    assert [m["role"] for m in body["messages"]] == ["system", "user"]
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [("{enable_thinking: false}", "must be a JSON object: "), ('["a"]', "got list"), ("true", "got bool")],
+)
+def test_extra_body_must_be_a_json_object(monkeypatch, value, error):
+    monkeypatch.setenv("LLM_EXTRA_BODY", value)
+    with pytest.raises(ValueError, match="LLM_EXTRA_BODY") as exc:
+        Settings()
+    assert error in str(exc.value) and value not in str(exc.value)
+    monkeypatch.setenv("LLM_EXTRA_BODY", " ")
+    assert Settings().llm_extra_body == {}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "<think>The user asks about refunds. Source 1 says 30 days.</think>\n\nWithin 30 days [1].",
+        "<THINKING>\nrefunds...\n</THINKING>Within 30 days [1].",
+        "<|channel>thought\nSource 1 covers refunds.<channel|>Within 30 days [1].",
+        "<|channel>thought\nSource 1 covers refunds.<|channel>response Within 30 days [1].",
+        "The template opened the block in the prompt, so only the end is here.</think>Within 30 days [1].",
+    ],
+    ids=["think", "thinking", "gemma", "gemma-response-channel", "closing-tag-only"],
+)
+def test_inline_thinking_is_stripped(compatible, content):
+    compatible(ok(content))
+    assert llm.answer_with_fallback("refund?", HITS) == ("Within 30 days [1].", "openai-compatible")
+
+
+def test_a_separate_reasoning_field_is_ignored(compatible):
+    compatible(reply("Within 30 days [1].", reasoning_content="Let me think...", reasoning="Let me think..."))
+    assert llm.answer_with_fallback("refund?", HITS) == ("Within 30 days [1].", "openai-compatible")
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        reply(None, "length", reasoning_content="The user wants refund days. Source 1 says..."),
+        reply("<think>The user wants refund days. Source 1 says", "length"),
+        reply("<|channel>thought\nThe user wants refund days", "length"),
+        reply("Customers can request a full refund within", "length"),
+        reply("   ", "stop"),
+    ],
+    ids=["thinking-used-the-budget", "cut-off-mid-think", "cut-off-mid-gemma-thought", "cut-off-uncited", "blank"],
+)
+def test_cut_off_or_empty_replies_fall_back_to_extractive(compatible, handler):
+    compatible(handler)
+    answer, provider = llm.answer_with_fallback("How many days to request a refund?", HITS)
+    assert provider == llm.FALLBACK_PROVIDER
+    assert answer == "Customers can request a full refund within 30 days of delivery. [1]"
+
+
+def test_a_cut_off_reply_that_cites_a_source_is_kept_and_marked(compatible, caplog):
+    compatible(reply("Customers can request a full refund within 30 days [1]. After that", "length"))
+    with caplog.at_level("WARNING", logger="opsmind.ai.llm"):
+        answer, provider = llm.answer_with_fallback("refund?", HITS)
+    assert provider == "openai-compatible"
+    assert answer == "Customers can request a full refund within 30 days [1]. After that …"
+    assert "max_tokens" in caplog.text
+
+
+def test_a_cut_off_summary_uses_the_template(compatible, monkeypatch):
+    compatible(reply("Revenue rose by 4% while", "length"))
+    monkeypatch.setattr(insights, "settings", llm.settings)
+    assert insights.summarize([], []) == ("No unusual movements in this period.", "template")
+
+
+def test_thinking_is_stripped_for_every_provider(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setattr(llm, "settings", Settings())
+    monkeypatch.setitem(llm.PROVIDERS, "ollama", lambda system, messages: "<think>hmm</think> 30 days [1].")
+    assert llm.chat("s", "u") == "30 days [1]."
+    monkeypatch.setitem(llm.PROVIDERS, "ollama", lambda system, messages: "<think>hmm</think>")
+    with pytest.raises(ValueError, match="empty completion"):
+        llm.chat("s", "u")
+

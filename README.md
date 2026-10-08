@@ -101,6 +101,8 @@ OLLAMA_URL=http://ollama:11434 EMBED_PROVIDER=ollama LLM_PROVIDER=ollama docker 
 
 > Changing `EMBED_PROVIDER` changes the vector space, so reindex existing documents afterwards (`POST /api/v1/documents/:id/reindex`).
 
+`LLM_PROVIDER=openai-compatible` works with any `/chat/completions` host (Groq, OpenRouter, Cloudflare Workers AI, vLLM); `LLM_EXTRA_BODY` adds host-specific JSON to each request, for example `{"chat_template_kwargs":{"enable_thinking":false}}` to turn off Gemma 4's thinking on Cloudflare. Thinking a model writes into its reply is removed, and a reply that is empty or cut off at `LLM_MAX_TOKENS` before citing a source falls back to the extractive answer.
+
 ### Retrieval quality
 
 Hybrid search is measured, not assumed. [`services/ai/eval`](services/ai/eval/README.md) contains 12 company policies (English, Russian, Arabic) and 56 labelled questions: exact codes and IDs, natural questions, paraphrases, and cross-language questions. Every CI run (`rag-eval` job) indexes them through the real `/v1/ingest` path and asks each question with vector-only, full-text-only and hybrid (RRF) retrieval. It reports Recall@1/3/5 and MRR by question kind and language, and fails if hybrid Recall@5 drops below 0.8.
