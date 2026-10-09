@@ -1,7 +1,9 @@
 import type { Dict } from "./types";
 
 export const ru: Dict = {
-  "meta.description": "Платформа для операционной аналитики и корпоративных знаний на базе ИИ",
+  "meta.title": "OpsMind — платформа для операционной аналитики и корпоративных знаний на базе ИИ",
+  "meta.description":
+    "KPI-дашборды, которые сами находят аномалии, и ответы ИИ по вашим документам со ссылками на источники — на русском, английском и арабском.",
 
   "lang.label": "Язык",
   "common.loading": "Загрузка…",
@@ -49,6 +51,7 @@ export const ru: Dict = {
   "login.email": "Электронная почта",
   "login.password": "Пароль (не менее 8 символов)",
   "login.submitSignIn": "Войти",
+  "login.metaTitle": "Вход и регистрация",
   "login.submitRegister": "Создать пространство",
   "login.toRegister": "Впервые здесь? Создайте рабочее пространство",
   "login.toSignIn": "Уже есть аккаунт? Войдите",

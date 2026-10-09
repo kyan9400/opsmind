@@ -162,7 +162,8 @@ web:
     tag: ""
     pullPolicy: ""
   port: 3000
-  # NEXT_PUBLIC_API_URL is baked in at image build time; build the image with the public API URL.
+  # NEXT_PUBLIC_API_URL and NEXT_PUBLIC_SITE_URL are baked in at image build time; build the image with
+  # the public URL.
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits: { memory: 384Mi }

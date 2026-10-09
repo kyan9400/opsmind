@@ -94,6 +94,7 @@ services:
       args:
         # Baked into the client bundle at build time, so changing DOMAIN needs `up -d --build`.
         NEXT_PUBLIC_API_URL: https://${DOMAIN:?set DOMAIN in .env}
+        NEXT_PUBLIC_SITE_URL: https://${DOMAIN:?set DOMAIN in .env}
     logging: *logging
     deploy:
       resources:

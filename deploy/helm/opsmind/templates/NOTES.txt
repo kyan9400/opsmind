@@ -4,7 +4,7 @@ OpsMind {{ .Chart.AppVersion }} is deployed as release "{{ .Release.Name }}" in 
 
 Open the UI at: http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host | default "<ingress address>" }}/
 The API is served on the same host under /api. Build the web image with
-NEXT_PUBLIC_API_URL set to that public URL (it is baked in at build time).
+NEXT_PUBLIC_API_URL and NEXT_PUBLIC_SITE_URL set to that public URL (baked in at build time).
 {{- else }}
 
 Access locally with port-forwards:
