@@ -1,0 +1,19 @@
+name: Docker Hub through mirror.gcr.io
+description: >
+  Points the runner's Docker daemon at Google's public Docker Hub mirror before anything is pulled.
+  GitHub's shared runner IPs keep hitting Docker Hub's pull rate limit ("toomanyrequests") and its
+  token endpoint times out; the mirror serves the same images, and Docker falls back to Docker Hub
+  for anything it does not have. Use it right after checkout, in jobs without service containers
+  (restarting Docker would stop them; those reference mirror.gcr.io/... directly).
+runs:
+  using: composite
+  steps:
+    - name: Use mirror.gcr.io for Docker Hub pulls
+      shell: bash
+      run: |
+        f=/etc/docker/daemon.json
+        # Keep the runner's own settings (cgroup options) and add the mirror.
+        cfg=$( (sudo cat "$f" 2>/dev/null || echo '{}') | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}')
+        echo "$cfg" | sudo tee "$f" >/dev/null
+        sudo systemctl restart docker
+        docker info --format 'Docker Hub mirrors: {{json .RegistryConfig.Mirrors}}'
