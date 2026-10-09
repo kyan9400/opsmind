@@ -1,19 +1,29 @@
-name: Docker Hub through mirror.gcr.io
+name: Docker Hub images from mirror.gcr.io
 description: >
-  Points the runner's Docker daemon at Google's public Docker Hub mirror before anything is pulled.
-  GitHub's shared runner IPs keep hitting Docker Hub's pull rate limit ("toomanyrequests") and its
-  token endpoint times out; the mirror serves the same images, and Docker falls back to Docker Hub
-  for anything it does not have. Use it right after checkout, in jobs without service containers
-  (restarting Docker would stop them; those reference mirror.gcr.io/... directly).
+  Pulls Docker Hub images from Google's public mirror and tags them with their usual names, so
+  compose, docker run and docker build find them locally and never ask Docker Hub. GitHub's shared
+  runner IPs keep hitting Docker Hub's pull rate limit ("toomanyrequests") and its token endpoint
+  times out. (The daemon's registry-mirrors setting is not used for these pulls on the runners.)
+  Service containers start before any step; they name mirror.gcr.io/... directly instead.
+inputs:
+  images:
+    description: Docker Hub images to fetch, separated by spaces or newlines.
+    default: pgvector/pgvector:pg16 redis:7-alpine node:22-alpine python:3.12-slim # the compose stack
 runs:
   using: composite
   steps:
-    - name: Use mirror.gcr.io for Docker Hub pulls
+    - name: Pull Docker Hub images from mirror.gcr.io
       shell: bash
+      env:
+        IMAGES: ${{ inputs.images }}
       run: |
-        f=/etc/docker/daemon.json
-        # Keep the runner's own settings (cgroup options) and add the mirror.
-        cfg=$( (sudo cat "$f" 2>/dev/null || echo '{}') | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}')
-        echo "$cfg" | sudo tee "$f" >/dev/null
-        sudo systemctl restart docker
-        docker info --format 'Docker Hub mirrors: {{json .RegistryConfig.Mirrors}}'
+        for img in $IMAGES; do
+          repo="${img%:*}" tag="${img##*:}"
+          case "$repo" in */*) path="$repo" ;; *) path="library/$repo" ;; esac # official images
+          src="mirror.gcr.io/$path:$tag"
+          for attempt in 1 2 3; do
+            if docker pull -q "$src"; then docker tag "$src" "$img"; continue 2; fi
+            sleep $((attempt * 5))
+          done
+          echo "::warning::$src could not be pulled; Docker Hub will be asked for $img"
+        done

@@ -118,6 +118,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/docker-hub-mirror
+        with:
+          images: ${{ env.PROMETHEUS_IMAGE }}
       - name: promtool check config
         run: >-
           docker run --rm -v "$PWD/ops/prometheus:/etc/prometheus:ro"
@@ -144,6 +146,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/docker-hub-mirror
+        with:
+          images: caddy:2.10-alpine
       - uses: hashicorp/setup-terraform@v3
       - run: terraform fmt -check -recursive infra
       - run: terraform init -backend=false
@@ -242,11 +246,8 @@ jobs:
           cluster_name: opsmind
           config: deploy/kind/kind-config.yaml
       - name: Load images into kind
-        # Postgres and Redis too: pulled here through the mirror, so the cluster never asks Docker Hub.
-        run: |
-          docker pull pgvector/pgvector:pg16
-          docker pull redis:7-alpine
-          kind load docker-image opsmind-api:ci opsmind-ai:ci opsmind-web:ci pgvector/pgvector:pg16 redis:7-alpine --name opsmind
+        # Postgres and Redis too (fetched from the mirror above), so the cluster never asks Docker Hub.
+        run: kind load docker-image opsmind-api:ci opsmind-ai:ci opsmind-web:ci pgvector/pgvector:pg16 redis:7-alpine --name opsmind
       - name: Deploy and run end-to-end tests
         run: bash scripts/kind-e2e.sh
 
