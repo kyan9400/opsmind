@@ -6,9 +6,12 @@ on:
   pull_request:
   workflow_dispatch: # manual "Run workflow" button in the Actions tab
 
+# A new push to a pull request cancels the run for its old head. Every main commit gets its own group and
+# always finishes: Deploy waits for it, and a shared group would still drop a queued run when a third
+# push arrives.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   api:
