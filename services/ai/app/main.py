@@ -28,7 +28,14 @@ from .retrieval import hybrid_search
 from .telemetry import ANOMALIES, EMBED_DURATION, metrics_middleware, metrics_response, setup_tracing, timed
 
 log = logging.getLogger("opsmind.ai")
-app = FastAPI(title="OpsMind AI", version="0.4.0")
+app = FastAPI(
+    title="OpsMind AI",
+    version="0.4.0",
+    # API_DOCS=true (docker-compose sets it); without it these routes do not exist (404).
+    docs_url="/docs" if settings.api_docs else None,
+    redoc_url="/redoc" if settings.api_docs else None,
+    openapi_url="/openapi.json" if settings.api_docs else None,
+)
 app.middleware("http")(metrics_middleware)
 setup_tracing(app)
 

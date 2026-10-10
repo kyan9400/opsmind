@@ -22,21 +22,32 @@ def test_vercel_entrypoint_is_the_app():
     assert entry is app and isinstance(entry, FastAPI)
 
 
-def _metrics_status(**env: str) -> int:
-    # Settings are read once, at import; a fresh interpreter sees the variable.
+def _statuses(*paths: str, **env: str) -> list[int]:
+    # Settings are read once, at import; a fresh interpreter sees the variables.
     code = (
-        "from fastapi.testclient import TestClient; from index import app; "
-        "print(TestClient(app).get('/metrics').status_code)"
+        "import sys; from fastapi.testclient import TestClient; from index import app; "
+        "client = TestClient(app); print(*(client.get(path).status_code for path in sys.argv[1:]))"
     )
     out = subprocess.run(
-        [sys.executable, "-c", code], cwd=ROOT, env={**os.environ, **env}, capture_output=True, text=True, check=True
+        [sys.executable, "-c", code, *paths],
+        cwd=ROOT,
+        env={**os.environ, **env},
+        capture_output=True,
+        text=True,
+        check=True,
     )
-    return int(out.stdout.split()[-1])
+    return [int(status) for status in out.stdout.strip().splitlines()[-1].split()]
 
 
 def test_metrics_can_be_hidden_on_hosts_without_a_private_network():
-    assert _metrics_status(METRICS_PUBLIC="false") == 404
-    assert _metrics_status(METRICS_PUBLIC="") == 200  # unset keeps the default
+    assert _statuses("/metrics", METRICS_PUBLIC="false") == [404]
+    assert _statuses("/metrics", METRICS_PUBLIC="") == [200]  # unset keeps the default
+
+
+def test_api_docs_exist_only_when_asked_for():
+    docs = ("/docs", "/redoc", "/openapi.json")
+    assert _statuses(*docs, API_DOCS="") == [404, 404, 404]  # unset: off, as on Vercel
+    assert _statuses(*docs, API_DOCS="true") == [200, 200, 200]
 
 
 def test_switches_default_to_the_container_behaviour(monkeypatch):

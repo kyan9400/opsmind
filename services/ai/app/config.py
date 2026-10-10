@@ -113,6 +113,10 @@ class Settings:
 
     # false drops GET /metrics. With no private network or proxy in front (Vercel), it would be public.
     metrics_public: bool = field(default_factory=lambda: _flag("METRICS_PUBLIC", True))
+    # true serves the interactive docs (/docs, /redoc) and the schema (/openapi.json), for local
+    # development. Off by default: only the API and worker call this service, so wherever it is
+    # reachable from outside, a console for its internal routes would be too.
+    api_docs: bool = field(default_factory=lambda: _flag("API_DOCS", False))
 
 
 settings = Settings()
