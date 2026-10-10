@@ -12,10 +12,13 @@ const requireSandboxEnabled: RequestHandler = (_req, _res, next) =>
 
 // Per client IP (behind a proxy this relies on TRUST_PROXY). In-memory, so per instance; the global
 // SANDBOX_MAX_ACTIVE cap in createSandbox() is what holds across serverless instances.
+// Only sandboxes actually created count: a visitor who clicks while every slot is taken (503) keeps
+// their allowance for when one frees up.
 const perIp = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: () => config.SANDBOX_RATE_LIMIT,
   skip: () => config.SANDBOX_RATE_LIMIT === 0,
+  skipFailedRequests: true,
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: { error: "too many temporary workspaces from your network, try again later" },

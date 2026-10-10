@@ -47,6 +47,28 @@ describe("POST /api/v1/sandbox", () => {
     expect(blocked.body.error).toMatch(/too many temporary workspaces/);
     expect(createSandbox).toHaveBeenCalledTimes(2);
   });
+
+  it("does not count refusals (every slot taken) against the per-IP budget", async () => {
+    let full = 3;
+    const createSandbox = vi.fn();
+    vi.doMock("../src/lib/sandbox.js", async () => {
+      // From the app's own module instance, so the error handler recognises it.
+      const { HttpError } = await import("../src/lib/errors.js");
+      createSandbox.mockImplementation(async () => {
+        if (full-- > 0) throw new HttpError(503, "too many temporary workspaces right now, try again later");
+        return { token: "t", expiresAt: inOneDay().toISOString() };
+      });
+      return { createSandbox, deleteExpiredSandboxes: vi.fn() };
+    });
+    const { app } = await loadApp({ ALLOW_SANDBOX: "true", SANDBOX_RATE_LIMIT: "2" });
+
+    for (let i = 0; i < 3; i++) await request(app).post("/api/v1/sandbox").expect(503);
+    // Once a slot frees up, the visitor still has both of their creations.
+    await request(app).post("/api/v1/sandbox").expect(201);
+    await request(app).post("/api/v1/sandbox").expect(201);
+    await request(app).post("/api/v1/sandbox").expect(429);
+    expect(createSandbox).toHaveBeenCalledTimes(5);
+  });
 });
 
 describe("sandbox members", () => {
