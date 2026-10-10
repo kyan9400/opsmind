@@ -323,11 +323,13 @@ export default function AnalyticsPage() {
 
       {/* One toolbar above everything it scopes: view controls at the start, exports at the end. */}
       <div className="card mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 p-2">
+        {/* Narrower segments below sm, so all four fit a 360 px phone in every language; wrapping is the
+            fallback for anything smaller, rather than pushing the page sideways. */}
         <div
           role="radiogroup"
           aria-label={t("analytics.rangeLabel")}
           data-testid="analytics-range"
-          className="segmented"
+          className="segmented flex-wrap"
         >
           {RANGES.map((r) => (
             <button
@@ -340,7 +342,7 @@ export default function AnalyticsPage() {
                 setDays(r);
                 setShowAll(false);
               }}
-              className="segment"
+              className="segment px-2.5 sm:px-3"
             >
               {t("analytics.range", { count: r })}
             </button>
