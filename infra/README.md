@@ -75,7 +75,7 @@ cp terraform.tfvars.example terraform.tfvars
 
 Fill in at least `cloud_id`, `folder_id`, `ssh_public_key` (the content of `~/.ssh/id_ed25519.pub`; create one with `ssh-keygen -t ed25519` if needed) and `admin_cidr` (your public IP plus `/32`; find it with `curl https://ifconfig.me`).
 
-Database password, JWT secret and the internal AI token are **generated for you**. The app starts with the offline AI providers; add `openai_api_key` / `anthropic_api_key` and switch `embed_provider` / `llm_provider` when you want real models.
+Database password, JWT secret and the internal AI token are **generated for you**. The app starts with the offline AI providers; add `openai_api_key` / `anthropic_api_key` and switch `embed_provider` / `llm_provider` when you want real models. With `llm_provider = "openai-compatible"` the ai container reads `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` from the VM's `.env` (see [Providers](../README.md#providers)).
 
 ### 5. Create everything
 

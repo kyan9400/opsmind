@@ -115,7 +115,7 @@ browser → │ web (Next.js) │ ─────────────► │
 | Embeddings (`EMBED_PROVIDER`) | `hash`: deterministic feature hashing, lexical only | `openai` (`text-embedding-3-small`, 768-d) | `ollama` (`nomic-embed-text`) |
 | Answers (`LLM_PROVIDER`) | `extractive`: best-matching source sentences, cited | `openai`, `anthropic`, `openai-compatible` (any `/chat/completions` endpoint: Groq, OpenRouter, Cloudflare Workers AI, vLLM…) | `ollama` (`llama3.1`) |
 
-The offline defaults need no API keys, so CI and a fresh `docker compose up` work out of the box. An LLM is optional and set per deployment: `openai-compatible` takes `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` and optional `LLM_TIMEOUT_S` / `LLM_MAX_TOKENS` ([free-tier setup for the Vercel demo](deploy/vercel/README.md#optional-real-llm-answers-free-tier-for-example-groq)). Switch to a real model for semantic quality:
+The offline defaults need no API keys, so CI and a fresh `docker compose up` work out of the box. An LLM is optional and set per deployment. Switch to a real model for semantic quality:
 
 ```bash
 # Fully local, private: nothing leaves the machine
@@ -128,7 +128,11 @@ OLLAMA_URL=http://ollama:11434 EMBED_PROVIDER=ollama LLM_PROVIDER=ollama docker 
 
 > Changing `EMBED_PROVIDER` changes the vector space, so reindex existing documents afterwards (`POST /api/v1/documents/:id/reindex`).
 
-`LLM_PROVIDER=openai-compatible` works with any `/chat/completions` host (Groq, OpenRouter, Cloudflare Workers AI, vLLM); `LLM_EXTRA_BODY` adds host-specific JSON to each request, for example `{"chat_template_kwargs":{"enable_thinking":false}}` to turn off Gemma 4's thinking on Cloudflare. Thinking a model writes into its reply is removed, and a reply that is empty or cut off at `LLM_MAX_TOKENS` before citing a source falls back to the extractive answer. In extractive mode a follow-up is answered from its own words ("and for damaged items?" → the damaged-items sentence); the previous question is added only when the follow-up's own words match nothing ("why is that?", "как долго?", "لماذا؟").
+`LLM_PROVIDER=openai-compatible` works with any `/chat/completions` host (Groq, OpenRouter, Cloudflare Workers AI, vLLM). It takes `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`, plus optional `LLM_TIMEOUT_S`, `LLM_MAX_TOKENS` and `LLM_EXTRA_BODY`. The same `LLM_*` settings work on every profile: on the Vercel ai project ([free-tier setup](deploy/vercel/README.md#optional-real-llm-answers-free-tier-for-example-groq)), in `.env` for Docker Compose, which passes them to the ai container, through the Terraform module on the VM, and in the Helm chart's `ai.extraEnv`. `LLM_EXTRA_BODY` adds host-specific JSON to each request, for example `{"chat_template_kwargs":{"enable_thinking":false}}` to turn off Gemma 4's thinking on Cloudflare. Thinking a model writes into its reply is removed, and a reply that is empty or cut off at `LLM_MAX_TOKENS` before citing a source falls back to the extractive answer.
+
+`LLM_DAILY_MAX` (default 300) caps model calls per day for the whole deployment. The count is kept in Postgres (table `llm_usage`), so it holds across instances and a free daily quota lasts. Above it, answers fall back to the extractive one and summaries to the template until the next day, and the response names the fallback provider instead of failing.
+
+In extractive mode a follow-up is answered from its own words ("and for damaged items?" → the damaged-items sentence); the previous question is added only when the follow-up's own words match nothing ("why is that?", "как долго?", "لماذا؟").
 
 ### Retrieval quality
 
