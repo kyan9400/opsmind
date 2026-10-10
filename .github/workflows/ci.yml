@@ -237,10 +237,11 @@ jobs:
             --set postgresql.enabled=false --set externalDatabase.url=postgres://u:p@db:5432/opsmind \
             --set redis.enabled=false --set externalRedis.url=redis://cache:6379
       - name: Build images
+        # api and web build from the repo root, so npm ci installs what package-lock.json pins.
         run: |
-          docker build -t opsmind-api:ci apps/api
+          docker build -t opsmind-api:ci -f apps/api/Dockerfile .
           docker build -t opsmind-ai:ci services/ai
-          docker build -t opsmind-web:ci --build-arg NEXT_PUBLIC_API_URL=http://localhost:4000 apps/web
+          docker build -t opsmind-web:ci --build-arg NEXT_PUBLIC_API_URL=http://localhost:4000 -f apps/web/Dockerfile .
       - uses: helm/kind-action@v1
         with:
           cluster_name: opsmind

@@ -2,6 +2,12 @@ x-backend-env: &backend-env
   DATABASE_URL: postgres://${POSTGRES_USER:-opsmind}:${POSTGRES_PASSWORD:-opsmind_dev_password}@postgres:5432/${POSTGRES_DB:-opsmind}
   AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-dev-internal-token-change-me}
 
+# The api and web images build from the repo root, where package-lock.json is, so npm ci installs the
+# exact dependency tree CI tests.
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -25,7 +31,7 @@ services:
       retries: 10
 
   api:
-    build: ./apps/api
+    build: *api-build
     environment:
       <<: *backend-env
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
@@ -45,7 +51,7 @@ services:
       redis: { condition: service_healthy }
 
   worker:
-    build: ./apps/api
+    build: *api-build
     command: ["node", "dist/worker.js"]
     environment:
       <<: *backend-env
@@ -86,7 +92,8 @@ services:
 
   web:
     build:
-      context: ./apps/web
+      context: .
+      dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: http://localhost:4000
         NEXT_PUBLIC_SANDBOX: ${ALLOW_SANDBOX:-false} # the button follows the API switch above
