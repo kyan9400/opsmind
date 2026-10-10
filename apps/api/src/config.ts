@@ -22,7 +22,7 @@ const Env = z
     CORS_ORIGIN: z.string().default("http://localhost:3000"),
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     // Queue mode needs it (and falls back to a local Redis, below); inline mode uses it only for the
-    // insights cache, and runs uncached without it.
+    // insights cache, which without it lives in each instance's memory.
     REDIS_URL: z.preprocess(blankToUndefined, z.string().url().optional()),
     // A trailing slash would turn "/v1/ask" into "//v1/ask", which the AI service answers with 404.
     AI_SERVICE_URL: z

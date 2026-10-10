@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { aiPost } from "./aiClient.js";
 import { insightsCache } from "./apiMetrics.js";
 import { addDays } from "./dates.js";
 import { getDailySeries, type Dashboard } from "./metrics.js";
-import { cacheGet, cacheSet, dataVersion } from "./redis.js";
+import { cacheGet, cacheSet, dataVersion, sharedCache } from "./redis.js";
 
 export interface Anomaly {
   metricId: string;
@@ -50,16 +51,28 @@ interface AiInsights {
 const LOOKBACK_DAYS = 56;
 const TTL_SECONDS = 600;
 
-/** Anomalies + narrative for a dashboard view. Cached per tenant, period and data version. */
+async function cached(key: string) {
+  const hit = await cacheGet<Insights>(key);
+  insightsCache.inc({ result: hit ? "hit" : "miss" });
+  return hit;
+}
+
+/**
+ * Anomalies + narrative for a dashboard view, cached for TTL_SECONDS. With Redis the key is the tenant,
+ * period and data version (bumped by every write), so a hit costs no query at all. Without it each
+ * instance caches in its own memory, where another instance's bump never arrives: the key is then a hash
+ * of the request to the AI service, so a cached result always describes the data as it is now.
+ */
 export async function getInsights(tenantId: string, dashboard: Dashboard): Promise<Insights> {
   const { from, to } = dashboard.period;
-  const key = `insights:${tenantId}:${from}:${to}:v${await dataVersion(tenantId)}`;
-  const cached = await cacheGet<Insights>(key);
-  insightsCache.inc({ result: cached ? "hit" : "miss" });
-  if (cached) return cached;
+  let key = sharedCache() ? `insights:${tenantId}:${from}:${to}:v${await dataVersion(tenantId)}` : undefined;
+  if (key) {
+    const hit = await cached(key);
+    if (hit) return hit;
+  }
 
   const daily = await getDailySeries(tenantId, addDays(from, -LOOKBACK_DAYS), to);
-  const { status, data } = await aiPost<AiInsights>("/v1/insights", {
+  const request = {
     start: from,
     end: to,
     metrics: dashboard.kpis.map((k) => ({
@@ -77,7 +90,14 @@ export async function getInsights(tenantId: string, dashboard: Dashboard): Promi
       previous: k.previous,
       delta_pct: k.deltaPct,
     })),
-  });
+  };
+  if (!key) {
+    key = `insights:${tenantId}:${createHash("sha256").update(JSON.stringify(request)).digest("base64url")}`;
+    const hit = await cached(key);
+    if (hit) return hit;
+  }
+
+  const { status, data } = await aiPost<AiInsights>("/v1/insights", request);
   if (status !== 200) throw new Error(data.detail ?? `ai service responded ${status}`);
 
   const insights: Insights = {
