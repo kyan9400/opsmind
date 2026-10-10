@@ -145,7 +145,7 @@ const SAMPLE_CSV = `date,metric,value
 2026-09-02,Revenue,13150`;
 
 export default function AnalyticsPage() {
-  const { t, locale } = useI18n();
+  const { t, locale, dir } = useI18n();
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [days, setDays] = useState<number>(30);
@@ -261,6 +261,30 @@ export default function AnalyticsPage() {
       await Promise.all([loadDashboard(), loadInsights()]);
     });
 
+  function selectRange(r: number) {
+    setDays(r);
+    setShowAll(false);
+  }
+
+  // The ARIA radio pattern screen readers announce ("1 of 4"): one tab stop, and the arrow keys move the
+  // choice. Left/Right follow the reading direction, so they swap in Arabic; Home/End jump to the ends.
+  function onRangeKey(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return; // Alt+Left is the browser's Back
+    const last = RANGES.length - 1;
+    const i = Math.max(0, RANGES.indexOf(days as (typeof RANGES)[number]));
+    const forward = dir === "rtl" ? "ArrowLeft" : "ArrowRight";
+    const back = dir === "rtl" ? "ArrowRight" : "ArrowLeft";
+    let next: number;
+    if (e.key === forward || e.key === "ArrowDown") next = i === last ? 0 : i + 1;
+    else if (e.key === back || e.key === "ArrowUp") next = i === 0 ? last : i - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    else return;
+    e.preventDefault();
+    selectRange(RANGES[next]);
+    e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
+  }
+
   const exportAs = (format: "xlsx" | "pdf") =>
     runAction(format, () =>
       download(`/metrics/export?format=${format}&days=${days}&bucket=${bucket}`, `opsmind-kpis.${format}`),
@@ -329,6 +353,7 @@ export default function AnalyticsPage() {
           role="radiogroup"
           aria-label={t("analytics.rangeLabel")}
           data-testid="analytics-range"
+          onKeyDown={onRangeKey}
           className="segmented flex-wrap"
         >
           {RANGES.map((r) => (
@@ -337,11 +362,9 @@ export default function AnalyticsPage() {
               type="button"
               role="radio"
               aria-checked={days === r}
+              tabIndex={days === r ? 0 : -1}
               data-testid={`analytics-range-${r}`}
-              onClick={() => {
-                setDays(r);
-                setShowAll(false);
-              }}
+              onClick={() => selectRange(r)}
               className="segment px-2.5 sm:px-3"
             >
               {t("analytics.range", { count: r })}
