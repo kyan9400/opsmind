@@ -279,10 +279,11 @@ def extractive_answer(
             if sentence.startswith("#") or len(words) < 4 or set(words) <= title:
                 continue
             shared = q.intersection(words)
-            if shared:
-                scored.append(
-                    _Sentence(len(shared) / len(words) ** 0.5, i, len(scored), sentence, f" {' '.join(words)} ")
-                )
+            # Sharing only numbers is a coincidence: "$1,000" is "1" and "000", which match "Severity 1"
+            # and "5,000 RUB" in a question the sources do not answer.
+            if any(not w.isdigit() for w in shared):
+                score = len(shared) / len(words) ** 0.5
+                scored.append(_Sentence(score, i, len(scored), sentence, f" {' '.join(words)} "))
     if not scored:
         return NO_ANSWER
     ranked = sorted(_distinct(scored), key=lambda s: (-s.score, s.order))

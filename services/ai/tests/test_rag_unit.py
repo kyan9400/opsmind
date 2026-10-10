@@ -81,3 +81,15 @@ def test_markdown_headings_are_not_answers():
     rule = "Post a status update every 30 minutes until the SEV-1 is resolved."
     hits = [hit(1, f"## First 15 minutes of a SEV-1\n\n{rule}")]
     assert extractive_answer("How often do we post status updates during a SEV-1?", hits) == f"{rule} [1]"
+
+
+def test_sentences_that_share_only_numbers_are_not_an_answer():
+    # The demo documents and its third example question in Arabic, which no sentence answers in Arabic:
+    # only "1" and "000" from "1,000" match. "Not found" lets the web show its own translated message.
+    hits = [
+        hit(1, "Shipping is free for orders over 5,000 RUB. International shipping is not offered yet."),
+        hit(2, "Severity 1: the checkout or payment flow is down. Page the on-call engineer immediately."),
+        hit(3, "Expenses up to 10,000 RUB are approved by the team lead."),
+    ]
+    assert extractive_answer("من يعتمد المصروفات التي تتجاوز 1,000 دولار؟", hits) == NO_ANSWER
+    assert 3 in cited_numbers(extractive_answer("Who approves expenses over $1,000?", hits), len(hits))
