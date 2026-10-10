@@ -63,6 +63,9 @@ export const en = {
   "login.submitSignIn": "Sign in",
   // Tab title for /login, which switches between both forms in place.
   "login.metaTitle": "Sign in or sign up",
+  // Tab title for /login when sign-up is closed (NEXT_PUBLIC_REGISTRATION=false).
+  "login.metaTitleSignIn": "Sign in",
+  "login.registrationClosed": "Sign-up is closed on this site.",
   "login.submitRegister": "Create workspace",
   "login.toRegister": "New here? Create a workspace",
   "login.toSignIn": "Already have an account? Sign in",

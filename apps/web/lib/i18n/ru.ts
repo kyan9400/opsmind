@@ -52,6 +52,8 @@ export const ru: Dict = {
   "login.password": "Пароль (не менее 8 символов)",
   "login.submitSignIn": "Войти",
   "login.metaTitle": "Вход и регистрация",
+  "login.metaTitleSignIn": "Вход",
+  "login.registrationClosed": "Регистрация на этом сайте закрыта.",
   "login.submitRegister": "Создать пространство",
   "login.toRegister": "Впервые здесь? Создайте рабочее пространство",
   "login.toSignIn": "Уже есть аккаунт? Войдите",

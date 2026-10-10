@@ -8,7 +8,8 @@ import { IconAlert, IconArrowRight } from "@/components/icons";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Logo } from "@/components/Logo";
 import { SandboxButton, sandboxEnabled } from "@/components/SandboxButton";
-import { api, setToken } from "@/lib/api";
+import { api, ApiError, setToken } from "@/lib/api";
+import { registrationEnabled } from "@/lib/flags";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW } from "@/lib/preview";
 
@@ -54,7 +55,9 @@ function PreviewSignIn() {
 function AuthForm() {
   const t = useT();
   const router = useRouter();
-  const [mode, setMode] = useState(useSearchParams().get("mode") === "register" ? "register" : "login");
+  const params = useSearchParams();
+  // With sign-up closed, an old "Create workspace" link (?mode=register) opens the sign-in form.
+  const [mode, setMode] = useState(registrationEnabled && params.get("mode") === "register" ? "register" : "login");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -71,7 +74,9 @@ function AuthForm() {
       setToken(token);
       router.push("/dashboard");
     } catch (err) {
-      setError((err as Error).message);
+      // 403: the API has sign-up closed although this build shows the form (NEXT_PUBLIC_REGISTRATION unset).
+      const closed = mode === "register" && err instanceof ApiError && err.status === 403;
+      setError(closed ? t("login.registrationClosed") : (err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -167,14 +172,16 @@ function AuthForm() {
         </button>
       </form>
 
-      <button
-        type="button"
-        onClick={() => setMode(mode === "login" ? "register" : "login")}
-        data-testid="login-toggle-mode"
-        className="mt-4 w-full cursor-pointer text-center text-sm font-medium text-brand-text hover:underline"
-      >
-        {mode === "login" ? t("login.toRegister") : t("login.toSignIn")}
-      </button>
+      {registrationEnabled && (
+        <button
+          type="button"
+          onClick={() => setMode(mode === "login" ? "register" : "login")}
+          data-testid="login-toggle-mode"
+          className="mt-4 w-full cursor-pointer text-center text-sm font-medium text-brand-text hover:underline"
+        >
+          {mode === "login" ? t("login.toRegister") : t("login.toSignIn")}
+        </button>
+      )}
 
       {(demoEnabled || sandboxEnabled) && (
         <>

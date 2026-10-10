@@ -52,6 +52,8 @@ export const ar: Dict = {
   "login.password": "كلمة المرور (8 أحرف على الأقل)",
   "login.submitSignIn": "تسجيل الدخول",
   "login.metaTitle": "تسجيل الدخول أو إنشاء حساب",
+  "login.metaTitleSignIn": "تسجيل الدخول",
+  "login.registrationClosed": "التسجيل مغلق في هذا الموقع.",
   "login.submitRegister": "إنشاء مساحة عمل",
   "login.toRegister": "مستخدم جديد؟ أنشئ مساحة عمل",
   "login.toSignIn": "لديك حساب بالفعل؟ سجّل الدخول",
