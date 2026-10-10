@@ -108,7 +108,15 @@ def _pdf_pages_text(
     return normalise("\n\n".join(parts))
 
 
+_SURROGATE = re.compile(r"[\ud800-\udfff]")
+
+
 def normalise(text: str) -> str:
+    # pypdf decodes broken ToUnicode maps with "surrogatepass", which can leave halves of UTF-16 pairs
+    # in the text, and the database cannot store them. A round trip through UTF-16 rejoins the halves
+    # that pair up and turns the rest into U+FFFD.
+    if _SURROGATE.search(text):
+        text = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
     text = text.replace("\r\n", "\n").replace("\x00", "")
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
