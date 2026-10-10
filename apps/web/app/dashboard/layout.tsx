@@ -85,14 +85,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* One sidebar for every width: a sticky column from lg up, an off-canvas drawer below (start edge, so
-          it slides in from the right in Arabic). A closed drawer is `invisible`, which keeps it out of the tab order. */}
+          it slides in from the right in Arabic). A closed drawer is `invisible`, which keeps it out of the tab order.
+          Only closing delays visibility until the slide ends: on opening it must flip at once, or the drawer is
+          still hidden, and cannot take focus, when the effect above moves focus into it. */}
       <aside
         ref={sidebarRef}
         id="app-sidebar"
-        className={`z-50 w-64 shrink-0 border-e border-line bg-surface transition-[translate,visibility] duration-200 max-lg:fixed max-lg:inset-y-0 max-lg:start-0 max-lg:shadow-overlay ${
+        className={`z-50 w-64 shrink-0 border-e border-line bg-surface duration-200 max-lg:fixed max-lg:inset-y-0 max-lg:start-0 max-lg:shadow-overlay ${
           menuOpen
-            ? "max-lg:visible max-lg:translate-x-0"
-            : "max-lg:invisible max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"
+            ? "transition-[translate] max-lg:visible max-lg:translate-x-0"
+            : "transition-[translate,visibility] max-lg:invisible max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"
         }`}
       >
         {/* The column spans the page; only its contents stick, so the border and surface never end mid-page. */}
