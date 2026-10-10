@@ -59,3 +59,25 @@ def test_internal_endpoints_require_token():
     client = TestClient(app)
     assert client.post("/v1/ingest", json={"document_id": "00000000-0000-0000-0000-000000000000"}).status_code == 401
     assert client.post("/v1/ask", json={"tenant_id": "00000000-0000-0000-0000-000000000000", "question": "x"}).status_code == 401
+
+
+def test_overlapping_chunks_do_not_repeat_a_sentence():
+    # Two chunks of one document: the second repeats a line and the tail of a sentence from the first.
+    hits = [
+        hit(1, "Express delivery is next business day in Moscow only. "
+               "Express is not available to post office boxes or parcel lockers.\n- Pro: 699 RUB per month."),
+        hit(2, "post office boxes or parcel lockers.\n- Pro: 699 RUB per month.\n- Plus: 299 RUB per month."),
+    ]
+    answer = extractive_answer("Is express delivery available to parcel lockers?", hits)
+    assert answer == (
+        "Express is not available to post office boxes or parcel lockers. [1] "
+        "Express delivery is next business day in Moscow only. [1]"
+    )
+    answer = extractive_answer("How much does the Plus plan cost per month?", hits)
+    assert answer == "- Plus: 299 RUB per month. [2] - Pro: 699 RUB per month. [1]"
+
+
+def test_markdown_headings_are_not_answers():
+    rule = "Post a status update every 30 minutes until the SEV-1 is resolved."
+    hits = [hit(1, f"## First 15 minutes of a SEV-1\n\n{rule}")]
+    assert extractive_answer("How often do we post status updates during a SEV-1?", hits) == f"{rule} [1]"
