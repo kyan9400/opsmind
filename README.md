@@ -95,7 +95,7 @@ browser → │ web (Next.js) │ ─────────────► │
 - **An AI budget per visitor.** Questions, insights and report exports call the AI service, so they share one rate limit: 20 requests per minute per user and client IP, under an account-wide ceiling of 10× that across all IPs (`AI_RATE_LIMIT`, 0 disables). Every visitor on the shared demo login gets their own budget, and one account cannot pull unlimited LLM calls through many addresses. Login and registration allow 20 attempts per IP per 15 minutes (`AUTH_RATE_LIMIT`). Behind a proxy, both limits need `TRUST_PROXY` to see real client IPs; the production compose file sets it, and so does the Helm chart when its ingress is enabled. The counters live in memory, per API replica.
 - **Login does not reveal which accounts exist.** An unknown email and a wrong password get the same error after exactly one bcrypt compare, so the timing matches too. Registration still answers 409 for a taken email; hiding that as well needs email verification.
 - **Append-only audit log** with a `(tenant_id, created_at DESC)` index and keyset pagination, so the "recent activity" query stays O(limit) as the table grows.
-- **Production-shaped from day one.** Multi-stage non-root images, health and readiness endpoints, graceful shutdown for rolling deploys, and migrations run on startup.
+- **Operational basics.** Multi-stage non-root images, health and readiness endpoints, graceful shutdown for rolling deploys, and migrations run on startup.
 
 ## How the RAG pipeline works
 
@@ -138,9 +138,9 @@ In extractive mode a follow-up is answered from its own words ("and for damaged 
 
 ### Retrieval quality
 
-Hybrid search is measured, not assumed. [`services/ai/eval`](services/ai/eval/README.md) contains 12 company policies (English, Russian, Arabic) and 56 labelled questions: exact codes and IDs, natural questions, paraphrases, and cross-language questions. Every CI run (`rag-eval` job) indexes them through the real `/v1/ingest` path and asks each question with vector-only, full-text-only and hybrid (RRF) retrieval. It reports Recall@1/3/5 and MRR by question kind and language, and fails if hybrid Recall@5 drops below 0.8.
+[`services/ai/eval`](services/ai/eval/README.md) contains 12 company policies (English, Russian, Arabic) and 56 labelled questions: exact codes and IDs, natural questions, paraphrases, and cross-language questions. Every CI run (`rag-eval` job) indexes them through the real `/v1/ingest` path and asks each question with vector-only, full-text-only and hybrid (RRF) retrieval. It reports Recall@1/3/5 and MRR by question kind and language, and fails if hybrid Recall@5 drops below 0.8.
 
-The evaluation already paid for itself. It showed that `websearch_to_tsquery` ANDs every word, so the full-text leg matched almost no natural-language question. Full text now ORs the question's content words and lets `ts_rank_cd` rank the chunks.
+The evaluation found a real problem: `websearch_to_tsquery` ANDs every word, so the full-text leg matched almost no natural-language question. Full text now ORs the question's content words and lets `ts_rank_cd` rank the chunks.
 
 | Mode | Recall@1 | Recall@3 | Recall@5 | MRR@10 |
 |---|---:|---:|---:|---:|
@@ -181,7 +181,7 @@ Businesses bring their numbers as a **CSV in long format** (`date,metric,value`)
 | 25% drop detected | 99.9% (14,991 / 15,000) |
 | 30% drop detected | 100% |
 | Sparse 0/1 counts (P(1) = 25%) | 2.2 alerts per 30 days (9.5 without the mean-absolute-deviation fallback) |
-| Demo data, 30 / 90 / 180-day views | The injected incidents are always found (5 / 6 / 6). The 30-day view never shows extra alerts. When the demo is loaded on a Tuesday or Friday, the 90-day view shows one extra medium alert and the 180-day view one or two; on a Monday only the 180-day view shows one. All are in the good direction. |
+| Demo data, 30 / 90 / 180-day views | The injected incidents are always found (5 / 6 / 6). The 30-day view never shows extra alerts. Depending on the weekday the demo is loaded, the 90- and 180-day views can show one or two extra medium alerts, all in the good direction. |
 
 The charts follow a documented data-viz spec: one metric per chart (never two y-axes), 2px lines with a 10% area wash, hairline grid, a crosshair tooltip that snaps to dates and works with arrow keys, status-coloured anomaly markers (always paired with an icon and label, never colour alone), a table view for every chart, and a validated palette with separate light and dark steps.
 
@@ -400,7 +400,7 @@ CI runs every suite against real Postgres + Redis service containers. It then st
 - **i18n**: Russian and Arabic (RTL) switch `<html lang/dir>` and survive a reload
 - **answer Markdown** (unit tests, no browser): the parser, the word-by-word reveal and the text read to screen readers
 
-CI runs fourteen jobs on every pull request and every push to `main`:
+CI runs these jobs on every pull request and every push to `main`:
 
 | Job | What it checks |
 |---|---|
