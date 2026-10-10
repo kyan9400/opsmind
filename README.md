@@ -357,7 +357,7 @@ The demo workspace is read-only and shared. **Try it with your own data** (landi
 - Otherwise it expires: `tenants.expires_at` (migration `004`, empty for normal workspaces). From that moment its token gets 401 `sandbox expired`. The next sandbox creation deletes up to 10 expired sandboxes (oldest first), and the daily cron (`/api/internal/cron/seed`) deletes the rest, so the data is gone at the latest about a day after expiry. Everything in a sandbox goes with the tenant (`ON DELETE CASCADE`).
 - Off by default, and switched on per deployment: `ALLOW_SANDBOX=true` on the API and `NEXT_PUBLIC_SANDBOX=true` for the web build (Docker Compose passes `ALLOW_SANDBOX` to both). Without them the button is not shown. The static preview never shows it.
 
-Anyone can press the button, so every sandbox works within limits. All are API settings:
+Anyone can press the button, so sandboxes have limits. All are API settings:
 
 | Setting | Default | What it limits |
 |---|---|---|
@@ -370,7 +370,7 @@ Anyone can press the button, so every sandbox works within limits. All are API s
 | `SANDBOX_GLOBAL_WRITE_RATE_LIMIT` | 30 | The same writes for all sandboxes together per hour (503 above it). Each one is an indexing run on the host's CPU quota, and one visitor could hold every live sandbox. |
 | `SANDBOX_DB_BRAKE_BYTES` | 350 MB | While the database is larger, sandbox creation and sandbox writes answer 503, so sandboxes stop growing long before a 500 MB free database fills up and turns read-only. Checked once a minute per instance. |
 
-The document, size and KPI-point limits are checked in the write's transaction under a lock on the tenant row, so parallel requests cannot slip past them. The write budgets are counted in memory and again in the audit log, so they hold across serverless instances. `0` turns off a rate limit or the brake. A sandbox can only re-index a failed or stuck document (409 otherwise), cannot add users or change roles (403), and shares the usual AI budget.
+The document, size and KPI-point limits are checked in the write's transaction under a lock on the tenant row, so parallel requests cannot slip past them. The write budgets are counted in the audit log, so they hold across serverless instances. `0` turns off a rate limit or the brake. A sandbox can only re-index a failed or stuck document (409 otherwise), cannot add users or change roles (403), and shares the usual AI budget.
 
 ## Testing
 
