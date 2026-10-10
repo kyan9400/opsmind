@@ -72,6 +72,9 @@ const nextConfig = {
   // Always defined, so `process.env.NEXT_PUBLIC_PREVIEW === "1"` is a build-time constant and webpack
   // leaves the mock and its fixtures out of normal builds entirely.
   env: { NEXT_PUBLIC_PREVIEW: "" },
+  // Next streams metadata into <body> for everyone but a list of known bots; Lighthouse and some link
+  // previewers then miss the description. Ours only reads the language cookie, so waiting costs nothing.
+  htmlLimitedBots: /.*/,
   ...(preview && previewConfig()),
   ...(staticPreview
     ? // No rewrites: a static export has no server to proxy with.

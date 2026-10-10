@@ -192,7 +192,7 @@ REGISTRY=registry.example.com/you   # any registry your cluster can pull from
 TAG=0.4.0                           # the chart's appVersion (the default tag)
 docker build -t $REGISTRY/opsmind-api:$TAG apps/api
 docker build -t $REGISTRY/opsmind-ai:$TAG services/ai
-docker build -t $REGISTRY/opsmind-web:$TAG --build-arg NEXT_PUBLIC_API_URL=https://opsmind.example.com apps/web
+docker build -t $REGISTRY/opsmind-web:$TAG --build-arg NEXT_PUBLIC_API_URL=https://opsmind.example.com   --build-arg NEXT_PUBLIC_SITE_URL=https://opsmind.example.com apps/web
 for c in api ai web; do docker push $REGISTRY/opsmind-$c:$TAG; done
 
 helm upgrade --install opsmind deploy/helm/opsmind -n opsmind --create-namespace \

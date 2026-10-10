@@ -361,6 +361,7 @@ it and has no fix yet).
 | `SANDBOX_WRITE_RATE_LIMIT` | api | `20` | `20` | Uploads, re-indexes, CSV imports and demo loads per sandbox per hour, counted in the database too; `0` disables. |
 | `SANDBOX_DB_BRAKE_BYTES` | api | `367001600` | `367001600` | Above this database size (350 MB) new sandboxes and sandbox writes get 503. Checked once a minute per instance; `0` disables. |
 | `NEXT_PUBLIC_SANDBOX` | web | unset | `true` | Shows **Try it with your own data** (build time). Pair with `ALLOW_SANDBOX=true`. |
+| `NEXT_PUBLIC_SITE_URL` | web | `http://localhost:3000` (`https://$DOMAIN` in `docker-compose.prod.yml`) | unset: Vercel's production domain is used | Public address in the link-preview image URL, `robots.txt` and `sitemap.xml` (build time). On Vercel, set it only for a custom domain. |
 | `DB_POOL_MAX` | ai | `10` | `2` | Postgres connections per instance. |
 | `DB_POOL_CHECK` | ai | `false` | `true` | Test each connection before use (instances freeze between requests). |
 | `INGEST_MAX_CHARS` | ai | `200000` | default | Characters of extracted text per document; above it the document fails with "document too long". `0`: no limit. |

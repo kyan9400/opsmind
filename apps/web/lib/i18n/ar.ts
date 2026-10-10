@@ -1,7 +1,9 @@
 import type { Dict } from "./types";
 
 export const ar: Dict = {
-  "meta.description": "منصة للعمليات والمعرفة المؤسسية مدعومة بالذكاء الاصطناعي",
+  "meta.title": "OpsMind — منصة للعمليات والمعرفة المؤسسية مدعومة بالذكاء الاصطناعي",
+  "meta.description":
+    "لوحات مؤشرات أداء تكشف التغيّرات غير المعتادة، وإجابات بالذكاء الاصطناعي من مستنداتك موثّقة بالمصادر — بالعربية والإنجليزية والروسية.",
 
   "lang.label": "اللغة",
   "common.loading": "جارٍ التحميل…",
@@ -49,6 +51,7 @@ export const ar: Dict = {
   "login.email": "البريد الإلكتروني",
   "login.password": "كلمة المرور (8 أحرف على الأقل)",
   "login.submitSignIn": "تسجيل الدخول",
+  "login.metaTitle": "تسجيل الدخول أو إنشاء حساب",
   "login.submitRegister": "إنشاء مساحة عمل",
   "login.toRegister": "مستخدم جديد؟ أنشئ مساحة عمل",
   "login.toSignIn": "لديك حساب بالفعل؟ سجّل الدخول",

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { dirOf, isLocale, LOCALE_COOKIE, LOCALE_STORAGE_KEY, matchLocale, type Locale } from "./config";
 import { createTranslator } from "./translate";
 import type { Translator } from "./types";
@@ -35,12 +36,20 @@ function persist(l: Locale) {
 export function I18nProvider({
   initialLocale,
   fromCookie,
+  serverRendered,
   children,
 }: {
   initialLocale: Locale;
   fromCookie: boolean;
+  /**
+   * The server renders per request (not the static shell), so after a switch it can redo what it
+   * rendered in the old language: the tab title and link-preview tags. The static export has no
+   * server to ask; its titles stay in the default language.
+   */
+  serverRendered: boolean;
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   // Start from the server's choice so the hydrated tree matches the HTML exactly.
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
   // The browser's choice the first render still has to switch to. Until it renders, <html> keeps what
@@ -56,8 +65,10 @@ export function I18nProvider({
     if (next && next !== initialLocale) {
       pending.current = next;
       setLocaleState(next);
+      // Only a stored choice is written to the cookie, so only then can the server render it.
+      if (stored && serverRendered) router.refresh();
     }
-  }, [fromCookie, initialLocale]);
+  }, [fromCookie, initialLocale, serverRendered, router]);
 
   useEffect(() => {
     if (pending.current && pending.current !== locale) return;
@@ -66,11 +77,16 @@ export function I18nProvider({
     document.documentElement.dir = dirOf(locale);
   }, [locale]);
 
-  const setLocale = useCallback((l: Locale) => {
-    pending.current = null;
-    setLocaleState(l);
-    persist(l);
-  }, []);
+  const setLocale = useCallback(
+    (l: Locale) => {
+      pending.current = null;
+      setLocaleState(l);
+      persist(l);
+      // Also drops router-cached pages rendered in the old language, so Back shows the new one.
+      if (serverRendered) router.refresh();
+    },
+    [serverRendered, router],
+  );
 
   const value = useMemo(
     () => ({ locale, dir: dirOf(locale), setLocale, t: createTranslator(locale) }),
