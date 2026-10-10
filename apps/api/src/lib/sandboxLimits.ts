@@ -100,7 +100,8 @@ export async function reserveSandboxWrite(tx: pg.PoolClient, tenantId: string, a
   if (globalLimit > 0 && SANDBOX_INDEXING_ACTIONS.includes(action)) {
     await tx.query("SELECT pg_advisory_xact_lock($1)", [SANDBOX_WRITE_LOCK_ID]);
     // Sandboxes only (expires_at set, the partial tenants_expires_idx), then audit_tenant_time_idx per
-    // sandbox. A purged sandbox takes its audit rows with it, so its writes stop counting a little early.
+    // sandbox. Expired and ended sandboxes count too: the cleanup keeps them until these rows are an hour
+    // old (lib/sandbox.ts), since they would go with them.
     const {
       rows: [{ n }],
     } = await tx.query<{ n: number }>(

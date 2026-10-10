@@ -1,8 +1,9 @@
 /**
  * "Try it with your own data": a temporary private workspace per visitor, seeded like the public demo
  * (180 days of KPIs and the 4 sample documents), whose owner is the visitor's browser. It expires after
- * SANDBOX_TTL_HOURS; requireAuth rejects its token from then on. It is deleted by the next sandbox
- * creation (a small batch of the oldest expired ones each time) or by the daily cron, whichever is first.
+ * SANDBOX_TTL_HOURS, or when its owner ends it (endSandbox); requireAuth rejects its token from then on.
+ * It is deleted by the next sandbox creation (a small batch of the oldest expired ones each time) or by
+ * the daily cron, whichever is first.
  */
 import { randomBytes } from "node:crypto";
 import { config } from "../config.js";
@@ -15,7 +16,7 @@ import { insertDemoDocuments } from "./demoSeed.js";
 import { HttpError } from "./errors.js";
 import { importDemo } from "./metrics.js";
 import { enqueueIngestAll } from "./queue.js";
-import { assertDatabaseHasRoom } from "./sandboxLimits.js";
+import { assertDatabaseHasRoom, SANDBOX_INDEXING_ACTIONS } from "./sandboxLimits.js";
 
 export const SANDBOX_TENANT_NAME = "Sandbox workspace";
 
@@ -86,6 +87,18 @@ export async function createSandbox(): Promise<{ token: string; expiresAt: strin
 }
 
 /**
+ * An expired sandbox `t` that can go. One that indexed a document in the last hour waits while the
+ * all-sandboxes write budget is on: that budget counts those writes through its audit rows, which go with
+ * it, so deleting it at once would hand its share of the hour straight back (create, upload, end, repeat).
+ * $2 is SANDBOX_INDEXING_ACTIONS, $3 whether the budget is on (deletable() fills both).
+ */
+const DELETABLE = `t.expires_at IS NOT NULL AND t.expires_at <= now()
+  AND (NOT $3::boolean OR NOT EXISTS (
+    SELECT 1 FROM audit_log a
+     WHERE a.tenant_id = t.id AND a.action = ANY($2::text[]) AND a.created_at > now() - interval '1 hour'))`;
+const deletable = () => [SANDBOX_INDEXING_ACTIONS, config.SANDBOX_GLOBAL_WRITE_RATE_LIMIT > 0];
+
+/**
  * Deletes expired sandboxes with everything in them (ON DELETE CASCADE), the oldest first, at most `limit`
  * (all of them without one). Permanent tenants have no expiry. SKIP LOCKED lets concurrent cleanups (two
  * creations, or a creation and the cron) take different rows instead of waiting for each other.
@@ -93,11 +106,22 @@ export async function createSandbox(): Promise<{ token: string; expiresAt: strin
 export async function deleteExpiredSandboxes(limit?: number): Promise<number> {
   const rows = await query<{ id: string }>(
     `DELETE FROM tenants WHERE id IN (
-       SELECT id FROM tenants WHERE expires_at IS NOT NULL AND expires_at <= now()
+       SELECT id FROM tenants t WHERE ${DELETABLE}
         ORDER BY expires_at LIMIT $1 FOR UPDATE SKIP LOCKED)
      RETURNING id`,
     // LIMIT NULL means no limit.
-    [limit ?? null],
+    [limit ?? null, ...deletable()],
   );
   return rows.length;
+}
+
+/**
+ * Ends a sandbox before its time, at its owner's request (DELETE /api/v1/sandbox): its token stops working
+ * and its slot frees up at once. Its data is deleted at once too, unless it indexed a document in the last
+ * hour; then the cleanup deletes it once that hour has passed, like any expired sandbox (see DELETABLE).
+ * Both statements match sandboxes only (expires_at set), so a permanent workspace is never touched.
+ */
+export async function endSandbox(tenantId: string) {
+  await query("UPDATE tenants SET expires_at = now() WHERE id = $1 AND expires_at > now()", [tenantId]);
+  await query(`DELETE FROM tenants t WHERE t.id = $1 AND ${DELETABLE}`, [tenantId, ...deletable()]);
 }

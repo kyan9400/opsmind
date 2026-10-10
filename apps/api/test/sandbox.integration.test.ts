@@ -401,4 +401,44 @@ run("sandbox workspaces (postgres)", () => {
     await createSandbox();
     expect(await left()).toEqual([]);
   });
+
+  const endSandbox = (auth: string) => request(app).delete("/api/v1/sandbox").set("authorization", auth);
+  const tenantsLeft = (tenantId: string) => one("SELECT count(*)::int AS n FROM tenants WHERE id = $1", [tenantId]);
+
+  it("ends a sandbox early for its owner: the token stops, the slot frees and the data goes at once", async () => {
+    const { auth, me } = await createSandbox();
+    const owner = await request(app)
+      .post("/api/v1/auth/register")
+      .send({ tenantName: "Not a sandbox", name: "P", email: `end-${Date.now()}@x.io`, password: "password123" })
+      .expect(201);
+    const permanent = `Bearer ${owner.body.token as string}`;
+    const ownerMe = await request(app).get("/api/v1/auth/me").set("authorization", permanent).expect(200);
+    await endSandbox(permanent).expect(403);
+    expect(await tenantsLeft(ownerMe.body.tenantId)).toBe(1);
+
+    await endSandbox(auth).expect(204);
+    await request(app).get("/api/v1/documents").set("authorization", auth).expect(401);
+    expect(await tenantsLeft(me.tenantId)).toBe(0);
+    expect(await one("SELECT count(*)::int AS n FROM documents WHERE tenant_id = $1", [me.tenantId])).toBe(0);
+  });
+
+  it("keeps an ended sandbox while the all-sandboxes budget still counts its uploads, then deletes it", async () => {
+    await withSettings({ SANDBOX_GLOBAL_WRITE_RATE_LIMIT: MAX_ACTIVE }, async () => {
+      const { auth, me } = await createSandbox();
+      await upload(auth, "counted").expect(202);
+      await endSandbox(auth).expect(204);
+      await request(app).get("/api/v1/documents").set("authorization", auth).expect(401);
+      // Ended (its slot is free), but deleting it would take the upload out of this hour's count.
+      const ended = "SELECT count(*)::int AS n FROM tenants WHERE id = $1 AND expires_at <= now()";
+      expect(await one(ended, [me.tenantId])).toBe(1);
+      await deleteExpiredSandboxes();
+      expect(await tenantsLeft(me.tenantId)).toBe(1);
+
+      await pool.query("UPDATE audit_log SET created_at = now() - interval '61 minutes' WHERE tenant_id = $1", [
+        me.tenantId,
+      ]);
+      await deleteExpiredSandboxes();
+      expect(await tenantsLeft(me.tenantId)).toBe(0);
+    });
+  });
 });

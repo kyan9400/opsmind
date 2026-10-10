@@ -217,8 +217,9 @@ describe("database brake", () => {
     }
     const created = await request(app).post("/api/v1/sandbox").expect(503);
     expect(created.body.error).toMatch(/nearly full/);
-    // Before refusing, the creation still deleted a batch of expired sandboxes, whose space new rows reuse.
-    expect(purged).toEqual([[10]]);
+    // Before refusing, the creation still deleted a batch of expired sandboxes, whose space new rows reuse
+    // (those whose uploads of the last hour the all-sandboxes budget still counts wait).
+    expect(purged).toEqual([[10, ["document.uploaded", "document.reindexed"], true]]);
 
     // Reads and normal workspaces are not affected (no file: 400 from the handler, after the guard).
     await request(app).get("/api/v1/audit?limit=0").set("authorization", sandbox).expect(400);

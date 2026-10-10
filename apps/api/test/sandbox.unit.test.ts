@@ -14,7 +14,7 @@ async function loadApp(env: Record<string, string> = {}) {
   const { createApp } = await import("../src/app.js");
   // The fake db instance this app was built with (a direct import of the helper may be a fresh copy).
   const db = (await import("../src/lib/db.js")) as unknown as typeof import("./helpers/fakeDb.js");
-  return { app: createApp(), bearer: db.bearer };
+  return { app: createApp(), bearer: db.bearer, db };
 }
 
 afterEach(() => {
@@ -68,6 +68,38 @@ describe("POST /api/v1/sandbox", () => {
     await request(app).post("/api/v1/sandbox").expect(201);
     await request(app).post("/api/v1/sandbox").expect(429);
     expect(createSandbox).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe("DELETE /api/v1/sandbox", () => {
+  it("ends the caller's sandbox for its owner, and for nobody else", async () => {
+    // With the sandbox switched off too: sandboxes that are still live can be ended.
+    const { app, bearer, db } = await loadApp();
+    const calls: [string, unknown[]][] = [];
+    db.answers.push(
+      { match: /^UPDATE tenants SET expires_at = now\(\)/, rows: (params) => (calls.push(["end", params]), []) },
+      { match: /^DELETE FROM tenants t WHERE t\.id = \$1/, rows: (params) => (calls.push(["delete", params]), []) },
+    );
+
+    await request(app).delete("/api/v1/sandbox").expect(401);
+    const others = [
+      bearer("owner", { sub: "real-owner" }),
+      bearer("viewer", { sub: "demo-viewer" }),
+      bearer("admin", { sub: "sb-admin", tenantId: "sb5", expiresAt: inOneDay() }),
+    ];
+    for (const auth of others) {
+      const res = await request(app).delete("/api/v1/sandbox").set("authorization", auth).expect(403);
+      expect(res.body.error).toBe("only the owner of a temporary workspace can end it");
+    }
+    expect(calls).toEqual([]);
+
+    const owner = bearer("owner", { sub: "sb-owner", tenantId: "sb4", expiresAt: inOneDay() });
+    await request(app).delete("/api/v1/sandbox").set("authorization", owner).expect(204);
+    expect(calls).toEqual([
+      ["end", ["sb4"]],
+      // Deleted at once unless the all-sandboxes budget still counts an upload of its last hour.
+      ["delete", ["sb4", ["document.uploaded", "document.reindexed"], true]],
+    ]);
   });
 });
 

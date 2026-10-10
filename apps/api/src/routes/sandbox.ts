@@ -2,7 +2,8 @@ import { Router, type RequestHandler } from "express";
 import { rateLimit } from "express-rate-limit";
 import { config } from "../config.js";
 import { HttpError } from "../lib/errors.js";
-import { createSandbox } from "../lib/sandbox.js";
+import { createSandbox, endSandbox } from "../lib/sandbox.js";
+import { requireAuth } from "../middleware/auth.js";
 
 export const sandboxRouter = Router();
 
@@ -27,4 +28,16 @@ const perIp = rateLimit({
 /** No auth: creates a temporary workspace and answers with its owner's token. */
 sandboxRouter.post("/", requireSandboxEnabled, perIp, async (_req, res) => {
   res.status(201).json(await createSandbox());
+});
+
+/**
+ * Ends the caller's sandbox now ("Sign out" in a sandbox), which frees its slot for the next visitor. Only
+ * its owner may, and only in a sandbox. Not one of the budgeted writes, and open even with the sandbox
+ * switched off, so live sandboxes can still be ended.
+ */
+sandboxRouter.delete("/", requireAuth, async (req, res) => {
+  const { tenantId, role, sandbox } = req.user!;
+  if (!sandbox || role !== "owner") throw new HttpError(403, "only the owner of a temporary workspace can end it");
+  await endSandbox(tenantId);
+  res.status(204).end();
 });
