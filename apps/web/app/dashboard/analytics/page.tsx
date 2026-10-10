@@ -519,7 +519,7 @@ export default function AnalyticsPage() {
               {anomalies.length > 0 && <span className="badge badge-brand tabular-nums">{anomalies.length}</span>}
               {/* The previous range's insights stay visible (dimmed) while the new range is analysed. */}
               {insightsState === "loading" && insights && (
-                <span className="text-xs text-fg-subtle">{t("analytics.updating")}</span>
+                <span className="text-xs text-fg-muted">{t("analytics.updating")}</span>
               )}
             </div>
             <div className="px-5 pt-2 pb-4">

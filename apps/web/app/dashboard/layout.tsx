@@ -137,13 +137,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="shrink-0 border-t border-line p-3">
             {me && (
               <div className="mb-2 rounded-control bg-muted p-3" data-testid="sidebar-account">
-                <p className="eyebrow">{t("nav.workspace")}</p>
+                {/* fg-muted, not the eyebrow's fg-subtle: on bg-muted that is only 4.3:1. */}
+                <p className="eyebrow text-fg-muted">{t("nav.workspace")}</p>
                 <p className="mt-0.5 truncate text-sm font-semibold text-fg">{me.tenantName}</p>
                 <div className="mt-3 flex items-center gap-2.5">
                   <Avatar name={me.name} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-fg">{me.name}</p>
-                    <p className="truncate text-xs text-fg-subtle">{t(`role.${me.role}`)}</p>
+                    <p className="truncate text-xs text-fg-muted">{t(`role.${me.role}`)}</p>
                   </div>
                 </div>
               </div>

@@ -3,7 +3,9 @@
 /*
  * Design tokens. Raw values live in :root (light) and the dark media query; Tailwind reads them through
  * `@theme inline`, so `bg-surface`, `text-fg-muted`, `border-line`… switch theme with no `dark:` variants.
- * Contrast targets WCAG AA: body text >= 7:1, muted text >= 4.5:1 on both canvas and surface.
+ * Contrast targets WCAG AA for text at rest: body text >= 7:1, fg-muted >= 4.5:1 on canvas, surface and muted.
+ * In light mode fg-subtle reaches 4.5:1 only on canvas and surface (4.55 and 4.76:1), so small text does not
+ * use it on bg-muted or brand-soft (4.3:1), nor fade it with opacity.
  */
 :root {
   color-scheme: light;

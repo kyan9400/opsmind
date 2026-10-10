@@ -327,8 +327,10 @@ function TurnView({
                 key={c.n}
                 id={`source-${turn.id}-${c.n}`}
                 data-testid={latest ? "ask-source" : undefined}
-                className={`scroll-mt-32 rounded-card border bg-surface p-4 text-sm shadow-card transition-shadow target:ring-2 target:ring-ring ${
-                  c.cited ? "border-brand-line" : "border-line opacity-75"
+                // Uncited sources step back by lying flat on the page (no surface, no shadow), not by fading:
+                // at 75% opacity their small grey text fell under 4.5:1.
+                className={`scroll-mt-32 rounded-card border p-4 text-sm transition-shadow target:ring-2 target:ring-ring ${
+                  c.cited ? "border-brand-line bg-surface shadow-card" : "border-line bg-canvas"
                 }`}
               >
                 <div className="flex items-start gap-3">
