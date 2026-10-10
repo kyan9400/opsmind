@@ -47,7 +47,10 @@ export async function createSandbox(): Promise<{ token: string; expiresAt: strin
   const created = await withTx(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock($1)", [SANDBOX_LOCK_ID]);
     const { rows } = await tx.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM tenants WHERE expires_at > now()",
+      // A sandbox ended early still holds its slot for an hour after it was created (see endSandbox), so
+      // creating and ending in a loop cannot get round the cap.
+      `SELECT count(*)::int AS n FROM tenants
+        WHERE expires_at > now() OR (expires_at IS NOT NULL AND created_at > now() - interval '1 hour')`,
     );
     if (rows[0].n >= config.SANDBOX_MAX_ACTIVE) {
       throw new HttpError(503, "too many temporary workspaces right now, try again later");
@@ -92,7 +95,7 @@ export async function createSandbox(): Promise<{ token: string; expiresAt: strin
  * it, so deleting it at once would hand its share of the hour straight back (create, upload, end, repeat).
  * $2 is SANDBOX_INDEXING_ACTIONS, $3 whether the budget is on (deletable() fills both).
  */
-const DELETABLE = `t.expires_at IS NOT NULL AND t.expires_at <= now()
+const DELETABLE = `t.expires_at IS NOT NULL AND t.expires_at <= now() AND t.created_at <= now() - interval '1 hour'
   AND (NOT $3::boolean OR NOT EXISTS (
     SELECT 1 FROM audit_log a
      WHERE a.tenant_id = t.id AND a.action = ANY($2::text[]) AND a.created_at > now() - interval '1 hour'))`;
@@ -116,12 +119,18 @@ export async function deleteExpiredSandboxes(limit?: number): Promise<number> {
 }
 
 /**
- * Ends a sandbox before its time, at its owner's request (DELETE /api/v1/sandbox): its token stops working
- * and its slot frees up at once. Its data is deleted at once too, unless it indexed a document in the last
- * hour; then the cleanup deletes it once that hour has passed, like any expired sandbox (see DELETABLE).
- * Both statements match sandboxes only (expires_at set), so a permanent workspace is never touched.
+ * Ends a sandbox before its time, at its owner's request (DELETE /api/v1/sandbox): its token stops working,
+ * and its documents and KPIs are deleted at once. The now empty workspace row stays until the cleanup
+ * takes it (see DELETABLE): for an hour after creation it still holds a slot, and while its uploads are in
+ * this hour's all-sandboxes count their audit rows must stay. Every statement matches sandboxes only
+ * (expires_at set), so a permanent workspace is never touched.
  */
 export async function endSandbox(tenantId: string) {
-  await query("UPDATE tenants SET expires_at = now() WHERE id = $1 AND expires_at > now()", [tenantId]);
+  const ended = await query("UPDATE tenants SET expires_at = now() WHERE id = $1 AND expires_at IS NOT NULL RETURNING id", [
+    tenantId,
+  ]);
+  if (ended.length === 0) return;
+  await query("DELETE FROM documents WHERE tenant_id = $1", [tenantId]);
+  await query("DELETE FROM metrics WHERE tenant_id = $1", [tenantId]);
   await query(`DELETE FROM tenants t WHERE t.id = $1 AND ${DELETABLE}`, [tenantId, ...deletable()]);
 }

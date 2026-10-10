@@ -274,6 +274,8 @@ export const en = {
 
   // Temporary "try it with your own data" workspace (API: ALLOW_SANDBOX, web: NEXT_PUBLIC_SANDBOX).
   "sandbox.button": "Try it with your own data",
+  "sandbox.tenantName": "Sandbox workspace",
+  "sandbox.ownerName": "Sandbox owner",
   "sandbox.loading": "Creating your workspace…",
   "sandbox.loginTitle": "Want to try your own files?",
   "sandbox.loginBody": "Get a private temporary workspace with sample data. Upload documents and ask about them.",

@@ -59,7 +59,11 @@ const sandboxWrites = rateLimit({
   // Read per request, so tests can change it without reloading the app.
   limit: () => config.SANDBOX_WRITE_RATE_LIMIT,
   skip: (req) => !req.user?.sandbox || config.SANDBOX_WRITE_RATE_LIMIT === 0,
+  // A refusal that costs nothing does not use up the allowance: a re-index of a ready document (409), a
+  // file over the size limit (413) or this limiter's own 429. A 503 from the all-sandboxes budget or the
+  // database brake still counts, since reaching it takes the budget's locks.
   skipFailedRequests: true,
+  requestWasSuccessful: (_req, res) => ![409, 413, 429].includes(res.statusCode),
   keyGenerator: (req) => req.user!.tenantId,
   standardHeaders: "draft-7",
   legacyHeaders: false,

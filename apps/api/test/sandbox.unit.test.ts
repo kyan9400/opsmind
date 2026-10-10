@@ -77,7 +77,8 @@ describe("DELETE /api/v1/sandbox", () => {
     const { app, bearer, db } = await loadApp();
     const calls: [string, unknown[]][] = [];
     db.answers.push(
-      { match: /^UPDATE tenants SET expires_at = now\(\)/, rows: (params) => (calls.push(["end", params]), []) },
+      { match: /^UPDATE tenants SET expires_at = now\(\)/, rows: (params) => (calls.push(["end", params]), [{ id: "sb4" }]) },
+      { match: /^DELETE FROM (documents|metrics) WHERE/, rows: (params) => (calls.push(["data", params]), []) },
       { match: /^DELETE FROM tenants t WHERE t\.id = \$1/, rows: (params) => (calls.push(["delete", params]), []) },
     );
 
@@ -97,7 +98,9 @@ describe("DELETE /api/v1/sandbox", () => {
     await request(app).delete("/api/v1/sandbox").set("authorization", owner).expect(204);
     expect(calls).toEqual([
       ["end", ["sb4"]],
-      // Deleted at once unless the all-sandboxes budget still counts an upload of its last hour.
+      // Its documents and KPIs go at once; the empty row waits for the cleanup rule (DELETABLE).
+      ["data", ["sb4"]],
+      ["data", ["sb4"]],
       ["delete", ["sb4", ["document.uploaded", "document.reindexed"], true]],
     ]);
   });

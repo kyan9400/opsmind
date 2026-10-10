@@ -27,6 +27,13 @@ const links = [
   { href: "/dashboard/ask", label: "nav.ask", testId: "nav-ask", Icon: IconSparkles },
 ] as const;
 
+/** A sandbox's workspace and owner names come from the API in English; show them in the UI language. */
+function accountNames(me: Me, t: ReturnType<typeof useT>) {
+  return me.expiresAt
+    ? { tenant: t("sandbox.tenantName"), user: t("sandbox.ownerName") }
+    : { tenant: me.tenantName, user: me.name };
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const t = useT();
   // The static preview is exported with trailingSlash, so the browser reports "/dashboard/analytics/".
@@ -142,11 +149,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="mb-2 rounded-control bg-muted p-3" data-testid="sidebar-account">
                 {/* fg-muted, not the eyebrow's fg-subtle: on bg-muted that is only 4.3:1. */}
                 <p className="eyebrow text-fg-muted">{t("nav.workspace")}</p>
-                <p className="mt-0.5 truncate text-sm font-semibold text-fg">{me.tenantName}</p>
+                <p className="mt-0.5 truncate text-sm font-semibold text-fg">{accountNames(me, t).tenant}</p>
                 <div className="mt-3 flex items-center gap-2.5">
-                  <Avatar name={me.name} />
+                  <Avatar name={accountNames(me, t).user} />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-fg">{me.name}</p>
+                    <p className="truncate text-sm font-medium text-fg">{accountNames(me, t).user}</p>
                     <p className="truncate text-xs text-fg-muted">{t(`role.${me.role}`)}</p>
                   </div>
                 </div>
@@ -190,7 +197,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="flex min-w-0 items-center gap-2 text-sm">
             {me && (
               <>
-                <span className="hidden truncate text-fg-subtle sm:inline">{me.tenantName}</span>
+                <span className="hidden truncate text-fg-subtle sm:inline">{accountNames(me, t).tenant}</span>
                 <span aria-hidden className="hidden text-line-strong sm:inline">
                   /
                 </span>

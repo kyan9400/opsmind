@@ -143,7 +143,11 @@ run("sandbox workspaces (postgres)", () => {
       .send({ tenantName: "Permanent", name: "P", email: `perm-${Date.now()}@x.io`, password: "password123" })
       .expect(201);
 
-    await pool.query("UPDATE tenants SET expires_at = now() - interval '1 minute' WHERE id = $1", [me.tenantId]);
+    // Created over an hour ago too: a younger sandbox still holds its slot (see DELETABLE).
+    await pool.query(
+      "UPDATE tenants SET expires_at = now() - interval '1 minute', created_at = now() - interval '4 hours' WHERE id = $1",
+      [me.tenantId],
+    );
     const res = await request(app).get("/api/v1/documents").set("authorization", auth).expect(401);
     expect(res.body.error).toBe("sandbox expired");
 
@@ -387,7 +391,8 @@ run("sandbox workspaces (postgres)", () => {
     const ids = (await Promise.all([createSandbox(), createSandbox(), createSandbox()])).map((s) => s.me.tenantId);
     // Expired long ago, so these are the oldest expired sandboxes and go first.
     await pool.query(
-      `UPDATE tenants SET expires_at = '2000-01-01'::timestamptz + array_position($1::uuid[], id) * interval '1 day'
+      `UPDATE tenants SET expires_at = '2000-01-01'::timestamptz + array_position($1::uuid[], id) * interval '1 day',
+                          created_at = '1999-12-31'::timestamptz
         WHERE id = ANY($1::uuid[])`,
       [ids],
     );
@@ -405,7 +410,7 @@ run("sandbox workspaces (postgres)", () => {
   const endSandbox = (auth: string) => request(app).delete("/api/v1/sandbox").set("authorization", auth);
   const tenantsLeft = (tenantId: string) => one("SELECT count(*)::int AS n FROM tenants WHERE id = $1", [tenantId]);
 
-  it("ends a sandbox early for its owner: the token stops, the slot frees and the data goes at once", async () => {
+  it("ends a sandbox early for its owner: the token stops and the data goes at once", async () => {
     const { auth, me } = await createSandbox();
     const owner = await request(app)
       .post("/api/v1/auth/register")
@@ -418,8 +423,15 @@ run("sandbox workspaces (postgres)", () => {
 
     await endSandbox(auth).expect(204);
     await request(app).get("/api/v1/documents").set("authorization", auth).expect(401);
-    expect(await tenantsLeft(me.tenantId)).toBe(0);
     expect(await one("SELECT count(*)::int AS n FROM documents WHERE tenant_id = $1", [me.tenantId])).toBe(0);
+    expect(await one("SELECT count(*)::int AS n FROM metrics WHERE tenant_id = $1", [me.tenantId])).toBe(0);
+    // The empty row keeps its slot for an hour after creation, so create-and-end loops cannot pass the cap.
+    expect(await tenantsLeft(me.tenantId)).toBe(1);
+    await deleteExpiredSandboxes();
+    expect(await tenantsLeft(me.tenantId)).toBe(1);
+    await pool.query("UPDATE tenants SET created_at = now() - interval '61 minutes' WHERE id = $1", [me.tenantId]);
+    await deleteExpiredSandboxes();
+    expect(await tenantsLeft(me.tenantId)).toBe(0);
   });
 
   it("keeps an ended sandbox while the all-sandboxes budget still counts its uploads, then deletes it", async () => {
@@ -437,6 +449,7 @@ run("sandbox workspaces (postgres)", () => {
       await pool.query("UPDATE audit_log SET created_at = now() - interval '61 minutes' WHERE tenant_id = $1", [
         me.tenantId,
       ]);
+      await pool.query("UPDATE tenants SET created_at = now() - interval '61 minutes' WHERE id = $1", [me.tenantId]);
       await deleteExpiredSandboxes();
       expect(await tenantsLeft(me.tenantId)).toBe(0);
     });

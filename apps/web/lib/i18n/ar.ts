@@ -281,6 +281,8 @@ export const ar: Dict = {
   "ask.searchedFor": "تم البحث عن: {query}",
   "ask.threadLabel": "المحادثة",
 
+  "sandbox.tenantName": "مساحة عمل مؤقتة",
+  "sandbox.ownerName": "المالك",
   "sandbox.button": "جرّبه ببياناتك الخاصة",
   "sandbox.loading": "جارٍ إنشاء مساحة العمل…",
   "sandbox.loginTitle": "هل تريد التجربة على ملفاتك الخاصة؟",

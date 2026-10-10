@@ -263,6 +263,8 @@ export const ru: Dict = {
   "ask.threadLabel": "Диалог",
 
   // Short on purpose: no wider than the English label, so it fits a 360 px phone next to its two icons.
+  "sandbox.tenantName": "Временное пространство",
+  "sandbox.ownerName": "Владелец",
   "sandbox.button": "Загрузить свои файлы",
   "sandbox.loading": "Создаём пространство…",
   "sandbox.loginTitle": "Хотите попробовать на своих файлах?",
