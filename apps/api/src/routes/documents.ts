@@ -81,30 +81,44 @@ documentsRouter.post("/", requireRole("member"), sandboxWriteGuard, upload, asyn
   res.status(202).json(doc);
 });
 
+// In a sandbox only a failed or stuck document can be re-indexed. Re-indexing a ready (or running) one
+// gives the same chunks for another full extract-and-embed pass, so a reindex loop is refused.
+// $3 is STUCK_AFTER.
+const SANDBOX_REINDEXABLE = `(status = 'failed'
+  OR (status IN ('queued', 'processing') AND updated_at < now() - $3::interval))`;
+const NOT_REINDEXABLE = "a temporary workspace can only re-index a document whose indexing failed";
+
 documentsRouter.post("/:id/reindex", requireRole("admin"), sandboxWriteGuard, async (req, res) => {
   const { tenantId, sub, sandbox } = req.user!;
+  const params = [req.params.id, tenantId, STUCK_AFTER];
   const doc = await withTx(async (tx) => {
-    if (sandbox) await reserveSandboxWrite(tx, tenantId);
-    // In a sandbox only a failed or stuck document can be re-indexed. Re-indexing a ready (or running)
-    // one gives the same chunks for another full extract-and-embed pass, so a reindex loop is refused.
+    if (sandbox) {
+      // Refused before the write budget takes its locks and counts: a refusal costs none of it.
+      const {
+        rows: [found],
+      } = await tx.query<{ reindexable: boolean }>(
+        `SELECT ${SANDBOX_REINDEXABLE} AS reindexable FROM documents WHERE id = $1 AND tenant_id = $2`,
+        params,
+      );
+      if (!found) throw new HttpError(404, "document not found");
+      if (!found.reindexable) throw new HttpError(409, NOT_REINDEXABLE);
+      await reserveSandboxWrite(tx, tenantId);
+    }
     const {
       rows: [updated],
     } = await tx.query<{ id: string; title: string }>(
       `UPDATE documents SET status = 'queued', error = NULL, updated_at = now()
-        WHERE id = $1 AND tenant_id = $2
-          AND (NOT $3::boolean OR status = 'failed'
-               OR (status IN ('queued', 'processing') AND updated_at < now() - $4::interval))
+        WHERE id = $1 AND tenant_id = $2 AND (NOT $4::boolean OR ${SANDBOX_REINDEXABLE})
         RETURNING id, title`,
-      [req.params.id, tenantId, sandbox, STUCK_AFTER],
+      [...params, sandbox],
     );
+    // Deleted, or (in a sandbox) picked up again, since the check above.
     if (!updated) {
       const { rowCount } = await tx.query("SELECT 1 FROM documents WHERE id = $1 AND tenant_id = $2", [
         req.params.id,
         tenantId,
       ]);
-      throw rowCount
-        ? new HttpError(409, "a temporary workspace can only re-index a document whose indexing failed")
-        : new HttpError(404, "document not found");
+      throw rowCount ? new HttpError(409, NOT_REINDEXABLE) : new HttpError(404, "document not found");
     }
     await audit({ tenantId, actorId: sub, action: "document.reindexed", target: updated.title }, tx);
     return updated;

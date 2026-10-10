@@ -44,6 +44,7 @@ afterEach(() => {
   VARS.forEach((name) => delete process.env[name]);
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.doUnmock("../src/lib/queue.js");
 });
 
 /** A KPI CSV of about `bytes` bytes. */
@@ -87,20 +88,40 @@ describe("sandbox file size", () => {
 });
 
 describe("sandbox write budget (in memory)", () => {
-  it("counts uploads, imports, re-indexes and demo loads per sandbox, then answers 429", async () => {
+  it("counts the writes that went through, per sandbox, then answers 429; refusals cost nothing", async () => {
+    // Writes succeed here: every transaction query gets an answer, and nothing is indexed.
+    vi.doMock("../src/lib/queue.js", () => ({ enqueueIngest: async () => {} }));
     const env = { SANDBOX_WRITE_RATE_LIMIT: "3", SANDBOX_MAX_FILE_BYTES: "1024" };
-    const { app, sandboxOwner, owner } = await loadApp(env);
+    const { app, db, sandboxOwner, owner } = await loadApp(env);
+    let reindexable = false;
+    const sql: string[] = [];
+    const tx = {
+      query: async (text: string) => {
+        sql.push(text);
+        return { rows: [{ n: 0, bytes: 0, id: "doc-1", title: "notes", reindexable }], rowCount: 1 };
+      },
+    };
+    db.withTx.mockImplementation((async (fn: (client: typeof tx) => unknown) => fn(tx)) as never);
     const sandbox = sandboxOwner("sb1");
     const post = (path: string) => request(app).post(path).set("authorization", sandbox);
     const reindex = "/api/v1/documents/00000000-0000-0000-0000-000000000001/reindex";
+    const uploadNotes = () => post("/api/v1/documents").attach("file", Buffer.from("notes"), "notes.txt");
 
-    // Refused or failed requests count too: the budget is about load, not about successful writes.
+    // Refused: too big, or a re-index of a document that is ready. Neither counts, and the re-index is
+    // refused before the budget takes its locks.
     await post("/api/v1/documents").attach("file", Buffer.alloc(2048), "a.txt").expect(413);
     await post("/api/v1/metrics/import").attach("file", csv(2048), "k.csv").expect(413);
-    await post(reindex).expect(500); // past the guard; there is no database here
-    const blocked = await post("/api/v1/metrics/demo").expect(429);
+    const ready = await post(reindex).expect(409);
+    expect(ready.body.error).toBe("a temporary workspace can only re-index a document whose indexing failed");
+    expect(sql.some((q) => /FOR UPDATE|advisory/.test(q))).toBe(false);
+
+    await uploadNotes().expect(202);
+    await uploadNotes().expect(202);
+    reindexable = true;
+    await post(reindex).expect(202);
+    const blocked = await uploadNotes().expect(429);
     expect(blocked.body.error).toMatch(/too many uploads and imports in this temporary workspace/);
-    await post(reindex).expect(429);
+    await post("/api/v1/metrics/demo").expect(429);
 
     // Reading is not limited, another sandbox has a budget of its own, and normal workspaces have none.
     await request(app).get("/api/v1/audit?limit=0").set("authorization", sandbox).expect(400);
