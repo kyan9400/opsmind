@@ -125,7 +125,9 @@ export const en = {
   "ask.thinking": "Thinking…",
   "ask.example1": "How long do customers have to request a refund?",
   "ask.example2": "How fast do orders ship?",
-  "ask.example3": "Who approves expenses over $1,000?",
+  // Each example must be answered by the demo documents (apps/api/src/lib/demoSeed.ts), also without an LLM:
+  // the extractive answer quotes the sentences sharing the most words with the question.
+  "ask.example3": "Who approves software subscriptions?",
   "ask.sources": "Sources",
   "ask.sourceMeta": "chunk {chunk} · score {score}",
   "ask.ms": "{ms} ms",
