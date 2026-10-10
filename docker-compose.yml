@@ -38,6 +38,8 @@ services:
       CORS_ORIGIN: http://localhost:3000
       AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-20} # login/register attempts per IP per 15 min; 0 disables (browser tests)
       AI_RATE_LIMIT: ${AI_RATE_LIMIT:-20} # ask/insights/export requests per user and IP per minute; 0 disables (load tests)
+      # Self-service sign-up; false closes it (and hides the web's sign-up links, see the web build args).
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
       # Temporary "try it with your own data" workspaces; off unless ALLOW_SANDBOX=true (also shows the web button).
       ALLOW_SANDBOX: ${ALLOW_SANDBOX:-false}
       SANDBOX_RATE_LIMIT: ${SANDBOX_RATE_LIMIT:-3} # sandbox creations per IP per hour; 0 disables (browser tests)
@@ -110,6 +112,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: http://localhost:4000
         NEXT_PUBLIC_SANDBOX: ${ALLOW_SANDBOX:-false} # the button follows the API switch above
+        NEXT_PUBLIC_REGISTRATION: ${ALLOW_REGISTRATION:-true} # and so do the sign-up links
     ports: ["3000:3000"]
     depends_on: [api]
 

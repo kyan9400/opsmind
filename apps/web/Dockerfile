@@ -20,6 +20,9 @@ ARG NEXT_PUBLIC_DEMO_EMAIL=
 ARG NEXT_PUBLIC_DEMO_PASSWORD=
 # NEXT_PUBLIC_SANDBOX: true shows "Try it with your own data"; pair it with ALLOW_SANDBOX=true on the API.
 ARG NEXT_PUBLIC_SANDBOX=
+# NEXT_PUBLIC_REGISTRATION: false hides every sign-up entry point; pair it with ALLOW_REGISTRATION=false on
+# the API. Empty keeps sign-up on.
+ARG NEXT_PUBLIC_REGISTRATION=
 # NEXT_PUBLIC_SITE_URL: the public origin, e.g. https://opsmind.example.com, for the link-preview image,
 # robots.txt and sitemap.xml (they need absolute URLs).
 ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
@@ -28,6 +31,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_DEMO_EMAIL=$NEXT_PUBLIC_DEMO_EMAIL \
     NEXT_PUBLIC_DEMO_PASSWORD=$NEXT_PUBLIC_DEMO_PASSWORD \
     NEXT_PUBLIC_SANDBOX=$NEXT_PUBLIC_SANDBOX \
+    NEXT_PUBLIC_REGISTRATION=$NEXT_PUBLIC_REGISTRATION \
     NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 RUN npm run build -w apps/web
 
