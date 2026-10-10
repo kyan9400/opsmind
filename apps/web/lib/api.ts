@@ -1,3 +1,6 @@
+import { DEFAULT_LOCALE, isLocale } from "./i18n/config";
+import { createTranslator } from "./i18n/translate";
+
 // An empty (or "/") NEXT_PUBLIC_API_URL means "same origin": calls go to /api/v1 on the web app's own host and
 // the Next.js server proxies them to the API (API_INTERNAL_URL in next.config.mjs). `??`, not `||`,
 // so that "" is kept instead of falling back to the local-dev default.
@@ -18,6 +21,18 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The API's own message, else a translated generic one with the status. Errors the API did not write itself
+ * come as plain text or HTML (Vercel's 413 for a body over 4.5 MB, a proxy's 502), and statusText is empty
+ * over HTTP/2, so without this the page would show an empty alert, or nothing at all.
+ */
+function errorMessage(status: number, body: { error?: unknown } | null): string {
+  if (typeof body?.error === "string" && body.error) return body.error;
+  const lang = typeof document === "undefined" ? "" : document.documentElement.lang;
+  const t = createTranslator(isLocale(lang) ? lang : DEFAULT_LOCALE);
+  return status === 413 ? t("common.tooLarge") : t("common.requestFailed", { status });
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   // Interactive preview: answered in the browser from recorded responses, never over the network.
@@ -33,7 +48,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
   const body = res.status === 204 ? {} : await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, body.error ?? res.statusText);
+  if (!res.ok) throw new ApiError(res.status, errorMessage(res.status, body));
   return body as T;
 }
 
@@ -146,8 +161,7 @@ export async function download(path: string, fallbackName: string) {
   const token = getToken();
   const res = await fetch(apiUrl(path), { headers: token ? { authorization: `Bearer ${token}` } : {} });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.error ?? res.statusText);
+    throw new ApiError(res.status, errorMessage(res.status, await res.json().catch(() => ({}))));
   }
   const name = /filename="?([^";]+)"?/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallbackName;
   const url = URL.createObjectURL(await res.blob());

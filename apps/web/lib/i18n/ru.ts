@@ -8,6 +8,8 @@ export const ru: Dict = {
   "lang.label": "Язык",
   "common.loading": "Загрузка…",
   "common.partial": "(неполный период)",
+  "common.requestFailed": "Запрос не выполнен (HTTP {status}). Попробуйте ещё раз.",
+  "common.tooLarge": "Файл слишком большой для загрузки.",
 
   "demo.button": "Попробовать демо",
   "demo.loading": "Выполняем вход…",

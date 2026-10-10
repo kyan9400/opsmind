@@ -14,6 +14,9 @@ export const en = {
   "lang.label": "Language",
   "common.loading": "Loading…",
   "common.partial": "(partial)",
+  // When an error comes from the hosting platform or a proxy rather than the API, so it has no message.
+  "common.requestFailed": "The request failed (HTTP {status}). Please try again.",
+  "common.tooLarge": "The file is too large to upload.",
 
   "demo.button": "Try the live demo",
   "demo.loading": "Signing in…",

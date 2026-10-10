@@ -8,6 +8,8 @@ export const ar: Dict = {
   "lang.label": "اللغة",
   "common.loading": "جارٍ التحميل…",
   "common.partial": "(فترة جزئية)",
+  "common.requestFailed": "تعذّر تنفيذ الطلب (HTTP {status}). يُرجى المحاولة مرة أخرى.",
+  "common.tooLarge": "الملف كبير جدًا ولا يمكن رفعه.",
 
   "demo.button": "جرّب العرض التجريبي",
   "demo.loading": "جارٍ تسجيل الدخول…",
