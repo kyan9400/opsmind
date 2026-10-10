@@ -74,7 +74,7 @@ export default function DocumentsPage() {
     const file = fileRef.current?.files?.[0];
     if (!file) return;
     if (sandbox) {
-      const used = docs.reduce((sum, d) => sum + d.sizeBytes, 0);
+      const used = (docs ?? []).reduce((sum, d) => sum + d.sizeBytes, 0);
       if (file.size > SANDBOX_MAX_FILE_BYTES) {
         const max = formatLimit(SANDBOX_MAX_FILE_BYTES, t, locale);
         return setError(t("docs.tooLarge", { size: formatSize(file.size, t, locale), max }));

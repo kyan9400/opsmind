@@ -264,6 +264,7 @@ export const en = {
   "ask.answer": "Answer",
   "ask.tryExample": "Try an example",
   "ask.cited": "Cited",
+  "ask.noAnswer": "I couldn't find an answer to that in your documents. Try other words, or upload a document that covers it.",
   "ask.newChat": "New chat",
   "ask.copy": "Copy answer",
   "ask.copied": "Copied",

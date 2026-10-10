@@ -673,6 +673,9 @@ jobs:
 
           # Expired: the token stops working at once, and the daily cron deletes the workspace and its data.
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "UPDATE tenants SET expires_at = now() - interval '1 minute' WHERE id = '$TENANT'"
+          # The cleanup keeps a sandbox for an hour after its last upload (the all-sandboxes write budget
+          # counts it); move the bikes.txt upload back so this one can go now.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "UPDATE audit_log SET created_at = now() - interval '2 hours' WHERE tenant_id = '$TENANT'"
           test "$(status "$API/api/v1/documents" -H "$AUTH")" = 401
           curl -s "$API/api/v1/documents" -H "$AUTH" | jq -e '.error == "sandbox expired"'
           curl -fsS --max-time 240 -H "authorization: Bearer $CRON_SECRET" "$API/api/internal/cron/seed" \

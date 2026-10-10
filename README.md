@@ -17,7 +17,7 @@ A portfolio project by [Alhassan Alfarran](https://alhassan-portfolio-sigma.verc
 
 **Measured in CI:**
 
-- **Tests:** 89 API tests (16 of them against a real Postgres), 79 AI-service tests (3 against pgvector), 14 Playwright browser tests and 8 unit tests of the answer renderer. The browser tests run twice, directly and through the Codespaces proxy; the two sandbox ones run only in the first pass, where sandboxes are on.
+- **Tests:** 117 API tests (27 of them against a real Postgres), 172 AI-service tests (5 against pgvector), 14 Playwright browser tests and 9 tests of the answer renderer. The browser tests run twice, directly and through the Codespaces proxy; the two sandbox ones run only in the first pass, where sandboxes are on.
 - **Pipeline:** 14 jobs on every pull request and every push to `main`, from unit tests to a Helm install on kind, a dev-container boot and the serverless profile the live demo runs ([list](#testing)).
 - **Load:** k6 with 50 virtual users, 0 errors, p95 between 3.1 ms (documents) and 9.4 ms (ask) per endpoint in a typical run, against budgets of 100–800 ms. This uses the offline providers (hash embeddings, extractive answers), so `ask` measures retrieval, not an LLM ([details](#load-testing)).
 - **Retrieval:** on 56 labelled questions over 12 documents in English, Russian and Arabic, hybrid search reaches Recall@5 85.7% and MRR@10 0.763 with the offline hash embedder ([details](#retrieval-quality)).
@@ -442,3 +442,7 @@ CI runs these jobs on every pull request and every push to `main`:
 ## Author
 
 **Alhassan Alfarran** — Software & DevOps Engineer · [Portfolio](https://alhassan-portfolio-sigma.vercel.app/) · [GitHub](https://github.com/kyan9400)
+
+## License
+
+[MIT](LICENSE) © Alhassan Alfarran

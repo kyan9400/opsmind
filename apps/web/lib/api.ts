@@ -111,6 +111,8 @@ export interface AskResponse {
   ms: number;
   /** The standalone question the search ran with, when a follow-up was rewritten using the history. */
   retrievalQuery?: string;
+  /** false when the documents held no answer (the AI service's text for that is English-only). */
+  found?: boolean;
 }
 /** One earlier exchange sent with a follow-up question (the API takes the last 4, 2,000 characters each). */
 export interface AskTurn {

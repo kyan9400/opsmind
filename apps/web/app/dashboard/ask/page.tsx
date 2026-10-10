@@ -263,7 +263,10 @@ function TurnView({
 }) {
   const { t, locale } = useI18n();
   const { result } = turn;
-  const blocks = useMemo(() => parseMarkdown(result.answer), [result.answer]);
+  // Nothing in the documents answered it: say so in the UI language, and list no unrelated sources.
+  const notFound = result.found === false;
+  const answer = notFound ? t("ask.noAnswer") : result.answer;
+  const blocks = useMemo(() => parseMarkdown(answer), [answer]);
   const total = useMemo(() => countWords(blocks), [blocks]);
   const typed = useTypewriter(total, animate, onTyped);
   const searched =
@@ -288,7 +291,7 @@ function TurnView({
                 push the page sideways on a phone. A radius of half the one-line height keeps the pill shape. */}
             <span className="badge badge-neutral max-w-full rounded-[0.625rem] whitespace-normal">{result.provider}</span>
             <span className="badge badge-neutral tabular-nums">{t("ask.ms", { ms: result.ms })}</span>
-            <CopyButton text={result.answer} />
+            <CopyButton text={answer} />
           </span>
         </div>
         <AnswerText
@@ -317,7 +320,7 @@ function TurnView({
         )}
       </div>
 
-      {result.citations.length > 0 && (
+      {!notFound && result.citations.length > 0 && (
         <div data-testid={latest ? "ask-sources" : undefined} className="pt-2">
           <h3 className="eyebrow flex items-center gap-1.5">
             <IconQuote size={14} />
@@ -436,7 +439,9 @@ export default function AskPage() {
       const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       setTurns((prev) => [...prev, { id, question: q, result }]);
       setTypingId(id);
-      setAnnouncement(`${t("ask.answer")}: ${plainText(parseMarkdown(result.answer))}`);
+      setAnnouncement(
+        `${t("ask.answer")}: ${result.found === false ? t("ask.noAnswer") : plainText(parseMarkdown(result.answer))}`,
+      );
     } catch (err) {
       setAnnouncement(""); // the error has its own role="alert"
       if (err instanceof ApiError && err.status === 401) return router.replace("/login");
