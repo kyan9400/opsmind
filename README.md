@@ -185,6 +185,11 @@ Businesses bring their numbers as a **CSV in long format** (`date,metric,value`)
 
 The charts follow a documented data-viz spec: one metric per chart (never two y-axes), 2px lines with a 10% area wash, hairline grid, a crosshair tooltip that snaps to dates and works with arrow keys, status-coloured anomaly markers (always paired with an icon and label, never colour alone), a table view for every chart, and a validated palette with separate light and dark steps.
 
+## Chat and languages
+
+- **Ask is a conversation.** Follow-up questions are sent with the last 4 turns as `history` (2,000 characters per field), so "and for express?" is understood, and the rewritten search query is shown under the answer. The conversation stays for the browser tab (sessionStorage), and there are **New chat** and copy buttons. Answers appear word by word (instantly with reduced motion), and the page scrolls to the start of the new answer. Screen readers hear the whole answer once, through a polite live region, never the half-typed text.
+- **The UI in English, Russian and Arabic.** Arabic uses a full right-to-left layout. The language is rendered on the server, so the first paint is already correct.
+
 ## Operations
 
 ### Observability
@@ -302,9 +307,10 @@ cd services/ai && uvicorn app.main:app --reload --port 8000             # AI ser
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| POST | `/api/v1/auth/register` | public | Create a tenant and its owner |
+| POST | `/api/v1/auth/register` | public | Create a tenant and its owner (403 with `ALLOW_REGISTRATION=false`) |
 | POST | `/api/v1/auth/login` | public | Get a JWT |
 | POST | `/api/v1/sandbox` | public | Create a temporary sandbox workspace (only with `ALLOW_SANDBOX=true`) |
+| DELETE | `/api/v1/sandbox` | sandbox owner | Delete the caller's sandbox and all its data now; returns 204 |
 | GET | `/api/v1/auth/me` | any | Current user and tenant (`expiresAt` is set for a sandbox) |
 | GET | `/api/v1/users` | viewer+ | List tenant users |
 | POST | `/api/v1/users` | admin+ | Add a user (lower role only) |
@@ -325,7 +331,7 @@ cd services/ai && uvicorn app.main:app --reload --port 8000             # AI ser
 | PATCH | `/api/v1/metrics/:id` | admin+ | Name, unit, total/average, good direction |
 | DELETE | `/api/v1/metrics/:id` | admin+ | Delete a metric and its data |
 
-Every route except register, login and sandbox needs a bearer token, and the role is checked against the database on each request. Routes marked *AI budget* share the per-visitor AI rate limit and answer 429 when it runs out. Register and login share the per-IP credential limit. Emails on the reserved `.invalid` domain cannot be registered or added as users.
+Every route except register, login and `POST /sandbox` needs a bearer token, and the role is checked against the database on each request. Routes marked *AI budget* share the per-visitor AI rate limit and answer 429 when it runs out. Register and login share the per-IP credential limit. Emails on the reserved `.invalid` domain cannot be registered or added as users.
 
 ## Demo workspace
 
@@ -337,22 +343,34 @@ docker compose exec -e DEMO_EMAIL=demo@opsmind.dev -e DEMO_PASSWORD='choose-one'
 
 - Visitors log in as **viewers**. They can explore dashboards, ask the AI and download reports, but cannot upload, import or change anything; CI checks this.
 - Build the web image with `NEXT_PUBLIC_DEMO_EMAIL` / `NEXT_PUBLIC_DEMO_PASSWORD` to show a one-click **Try the live demo** button (the Codespaces overlay does this).
+- A public demo usually closes sign-up: `ALLOW_REGISTRATION=false` makes the API refuse it, and `NEXT_PUBLIC_REGISTRATION=false` for the web build hides the sign-up links and form. The live demo sets both.
 - The seed is safe to re-run. It reuses `DEMO_EMAIL` only if the workspace was created by the seed itself: the name matches `DEMO_TENANT_NAME` (default "Northwind Supply (demo)"), and its hidden owner and the viewer were created in the same transaction as the workspace. Otherwise it exits non-zero without changing anything, so it can never publish someone's real account.
 - Each run resets the viewer's password and role, gives the hidden owner a new random password nobody knows, and removes every other account in the workspace (`removedUsers` in its output).
 
 ## Try it with your own data
 
-The demo workspace is read-only and shared. **Try it with your own data** (landing and login pages) gives a visitor a private **sandbox workspace** instead: the same 180 days of KPIs and four sample documents, but the visitor is its owner, so they can upload their own files, import a CSV and ask about them. Access ends after 24 hours (every dashboard page says how long it has left), and the data is deleted soon after, at the latest about a day later.
+The demo workspace is read-only and shared. **Try it with your own data** (landing and login pages) gives a visitor a private **sandbox workspace** instead: the same 180 days of KPIs and four sample documents, but the visitor is its owner, so they can upload their own files, import a CSV and ask about them. Access ends after 3 hours (`SANDBOX_TTL_HOURS`), and every dashboard page says how long is left.
 
-- `POST /api/v1/sandbox` creates the workspace, an owner with an unguessable `@sandbox.invalid` address and a random password nobody knows, and returns `{ token, expiresAt }`. The token is the only way in.
+- `POST /api/v1/sandbox` creates the workspace, an owner with an unguessable `@sandbox.invalid` address and a random password nobody knows, and returns `{ token, expiresAt }`. The token is the only way in. Clicking the button again while that sandbox is live goes back to it instead of creating another.
 - It answers right away; the sample documents are indexed in the background (the worker, or the API process with `INGEST_MODE=inline`), and the Documents page shows them becoming ready. Waiting would put a cold AI service and its retries inside the 300-second Vercel limit for nothing.
-- Abuse limits: `SANDBOX_RATE_LIMIT` creations per IP per hour (default 3) and at most `SANDBOX_MAX_ACTIVE` live sandboxes (default 20, because the per-IP counter is per instance on serverless hosts). Each sandbox holds at most `SANDBOX_MAX_DOCUMENTS` documents (default 10, samples included), `SANDBOX_MAX_BYTES` of files (default 1 MB) with `SANDBOX_MAX_FILE_BYTES` per file (default 512 KB, documents and CSVs) and `SANDBOX_MAX_CSV_ROWS` KPI points over all imports (default 5,000, the 1,080 sample points included). These are checked in the write's transaction under a lock on the tenant row, so parallel requests cannot slip past them. Uploads, re-indexes, CSV imports and demo loads share `SANDBOX_WRITE_RATE_LIMIT` per sandbox per hour (default 20; counted in memory and again in the audit log, so it holds across serverless instances), and a sandbox can only re-index a failed or stuck document (409 otherwise). While the database is larger than `SANDBOX_DB_BRAKE_BYTES` (default 350 MB, checked once a minute per instance), sandbox creation and sandbox writes answer 503, so sandboxes stop growing long before a 500 MB free database fills up and turns read-only. The usual AI budget applies too. A sandbox cannot add users or change roles (403).
-- Expiry: `tenants.expires_at` (migration `004`, empty for normal workspaces). From that moment its token gets 401 `sandbox expired`. The next sandbox creation deletes up to 10 expired sandboxes (oldest first), and the daily cron (`/api/internal/cron/seed`) deletes the rest, so the data is gone at the latest about a day after expiry; everything in a sandbox goes with the tenant (`ON DELETE CASCADE`).
+- Signing out of a sandbox, or switching to the live demo, asks first and then deletes the sandbox with its uploads (`DELETE /api/v1/sandbox`). Only the sandbox's owner can do this; anyone else gets 403.
+- Otherwise it expires: `tenants.expires_at` (migration `004`, empty for normal workspaces). From that moment its token gets 401 `sandbox expired`. The next sandbox creation deletes up to 10 expired sandboxes (oldest first), and the daily cron (`/api/internal/cron/seed`) deletes the rest, so the data is gone at the latest about a day after expiry. Everything in a sandbox goes with the tenant (`ON DELETE CASCADE`).
 - Off by default, and switched on per deployment: `ALLOW_SANDBOX=true` on the API and `NEXT_PUBLIC_SANDBOX=true` for the web build (Docker Compose passes `ALLOW_SANDBOX` to both). Without them the button is not shown. The static preview never shows it.
 
-**Ask as a conversation.** The Ask page is a chat: follow-up questions are sent with the last 4 turns as `history` (2,000 characters per field), so "and for express?" is understood, and a rewritten search query is shown under the answer. The conversation stays for the browser tab (sessionStorage), and there are **New chat** and copy buttons. Answers appear word by word (instantly with reduced motion) and the page scrolls to the start of the new answer. Screen readers hear the whole answer once, through a polite live region, and never the half-typed text.
+Anyone can press the button, so every sandbox works within limits. All are API settings:
 
-The UI is available in **English, Russian and Arabic**. Arabic uses a full right-to-left layout, and the language is rendered server-side, so the first paint is already correct.
+| Setting | Default | What it limits |
+|---|---|---|
+| `SANDBOX_RATE_LIMIT` | 3 | New sandboxes per IP per hour, counted per instance. Refused attempts do not count. |
+| `SANDBOX_MAX_ACTIVE` | 20 | Live sandboxes at once, across all instances. |
+| `SANDBOX_MAX_DOCUMENTS` | 10 | Documents per sandbox, the samples included. |
+| `SANDBOX_MAX_BYTES`, `SANDBOX_MAX_FILE_BYTES` | 1 MB, 512 KB | Files per sandbox in total, and per file (documents and CSVs). |
+| `SANDBOX_MAX_CSV_ROWS` | 5,000 | KPI points per sandbox over all imports, the 1,080 sample points included. |
+| `SANDBOX_WRITE_RATE_LIMIT` | 20 | Uploads, re-indexes, CSV imports and demo loads per sandbox per hour. |
+| `SANDBOX_GLOBAL_WRITE_RATE_LIMIT` | 30 | The same writes for all sandboxes together per hour (503 above it). Each one is an indexing run on the host's CPU quota, and one visitor could hold every live sandbox. |
+| `SANDBOX_DB_BRAKE_BYTES` | 350 MB | While the database is larger, sandbox creation and sandbox writes answer 503, so sandboxes stop growing long before a 500 MB free database fills up and turns read-only. Checked once a minute per instance. |
+
+The document, size and KPI-point limits are checked in the write's transaction under a lock on the tenant row, so parallel requests cannot slip past them. The write budgets are counted in memory and again in the audit log, so they hold across serverless instances. `0` turns off a rate limit or the brake. A sandbox can only re-index a failed or stuck document (409 otherwise), cannot add users or change roles (403), and shares the usual AI budget.
 
 ## Testing
 
