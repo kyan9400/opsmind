@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconArrowRight, IconUpload } from "@/components/icons";
-import { api, ApiError, setToken } from "@/lib/api";
+import { api, ApiError, getToken, setToken, type Me } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW } from "@/lib/preview";
 
@@ -33,8 +33,16 @@ export function SandboxButton({
     setBusy(true);
     setError(null);
     try {
-      const { token } = await api<{ token: string; expiresAt: string }>("/sandbox", { method: "POST" });
-      setToken(token);
+      // A visitor coming back reopens their sandbox instead of making another: it holds their uploads, and
+      // each network may create only a few an hour. /auth/me refuses an expired sandbox, so expiresAt here is ahead.
+      const current = getToken();
+      const me = current ? await api<Me>("/auth/me").catch(() => null) : null;
+      if (current && me?.expiresAt) {
+        setToken(current, me.expiresAt);
+        return router.push("/dashboard/documents");
+      }
+      const { token, expiresAt } = await api<{ token: string; expiresAt: string }>("/sandbox", { method: "POST" });
+      setToken(token, expiresAt);
       // Documents first: the sample files index in the background there, next to the upload form.
       router.push("/dashboard/documents");
     } catch (err) {

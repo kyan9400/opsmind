@@ -8,6 +8,8 @@ export const ru: Dict = {
   "lang.label": "Язык",
   "common.loading": "Загрузка…",
   "common.partial": "(неполный период)",
+  "common.requestFailed": "Запрос не выполнен (HTTP {status}). Попробуйте ещё раз.",
+  "common.tooLarge": "Файл слишком большой для загрузки.",
 
   "demo.button": "Попробовать демо",
   "demo.loading": "Выполняем вход…",
@@ -52,6 +54,10 @@ export const ru: Dict = {
   "login.password": "Пароль (не менее 8 символов)",
   "login.submitSignIn": "Войти",
   "login.metaTitle": "Вход и регистрация",
+  "login.metaTitleSignIn": "Вход",
+  "login.registrationClosed": "Регистрация на этом сайте закрыта.",
+  "login.sessionExpired": "Сеанс истёк. Войдите снова.",
+  "login.sandboxExpired": "Срок действия временного пространства истёк, его файлы больше недоступны.",
   "login.submitRegister": "Создать пространство",
   "login.toRegister": "Впервые здесь? Создайте рабочее пространство",
   "login.toSignIn": "Уже есть аккаунт? Войдите",
@@ -87,6 +93,9 @@ export const ru: Dict = {
   "docs.upload": "Загрузить",
   "docs.uploading": "Загрузка…",
   "docs.maxSize": "До 10 МБ",
+  "docs.maxSizeSandbox": "До {file} на файл, всего до {total}",
+  "docs.tooLarge": "Размер файла — {size}. Во временное пространство можно загружать файлы до {max}.",
+  "docs.sandboxFull": "Во временном пространстве можно хранить до {max}, уже занято {used}. Удалите документ, чтобы освободить место.",
   "docs.colTitle": "Название",
   "docs.colSize": "Размер",
   "docs.colChunks": "Фрагменты",
@@ -112,7 +121,7 @@ export const ru: Dict = {
   "ask.thinking": "Ищем ответ…",
   "ask.example1": "Сколько дней у клиента есть на возврат товара?",
   "ask.example2": "Как быстро отправляются заказы?",
-  "ask.example3": "Кто согласует расходы свыше $1000?",
+  "ask.example3": "Кто согласует подписки на ПО?",
   "ask.sources": "Источники",
   "ask.sourceMeta": "фрагмент {chunk} · релевантность {score}",
   "ask.ms": "{ms} мс",
@@ -257,7 +266,13 @@ export const ru: Dict = {
   "sandbox.loading": "Создаём пространство…",
   "sandbox.loginTitle": "Хотите попробовать на своих файлах?",
   "sandbox.loginBody":
-    "Получите временное личное пространство с примерами данных. Загружайте документы и задавайте по ним вопросы. Оно удаляется через 24 часа.",
+    "Получите временное личное пространство с примерами данных. Загружайте документы и задавайте по ним вопросы.",
+  "sandbox.deletedAfter": {
+    one: "Оно удаляется через {count} час.",
+    few: "Оно удаляется через {count} часа.",
+    many: "Оно удаляется через {count} часов.",
+    other: "Оно удаляется через {count} часа.",
+  },
   // The banner is sticky and must stay on one line on a phone, so these stay under about 40 characters.
   "sandbox.banner": {
     one: "Временное пространство · ещё {count} час",
@@ -269,4 +284,5 @@ export const ru: Dict = {
   "sandbox.bannerHint": "Доступно только вам: загружайте свои файлы и спрашивайте о них.",
   "sandbox.rateLimited": "Из вашей сети создано слишком много временных пространств. Попробуйте позже.",
   "sandbox.busy": "Сейчас открыто слишком много временных пространств. Попробуйте позже.",
+  "sandbox.confirmEnd": "Временное пространство и загруженные вами файлы будут удалены. Продолжить?",
 };

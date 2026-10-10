@@ -9,6 +9,7 @@ import { formatNumber } from "@/lib/format";
 import type { Locale } from "@/lib/i18n/config";
 import { useI18n } from "@/lib/i18n/provider";
 import type { Translator } from "@/lib/i18n/types";
+import { SANDBOX_MAX_BYTES, SANDBOX_MAX_FILE_BYTES, SANDBOX_STUCK_MS } from "@/lib/sandbox";
 
 const STATUS_STYLE: Record<DocumentStatus, { badge: string; dot: string }> = {
   queued: { badge: "badge-neutral", dot: "bg-fg-subtle" },
@@ -24,6 +25,13 @@ function formatSize(b: number, t: Translator, locale: Locale): string {
   return t("size.mb", { n: oneDecimal(b / 1048576) });
 }
 
+/** A round limit such as "512 KB" or "1 MB", without formatSize's decimal. */
+function formatLimit(b: number, t: Translator, locale: Locale): string {
+  return b % 1048576 === 0
+    ? t("size.mb", { n: formatNumber(b / 1048576, locale) })
+    : t("size.kb", { n: formatNumber(Math.round(b / 1024), locale) });
+}
+
 export default function DocumentsPage() {
   const { t, locale } = useI18n();
   const router = useRouter();
@@ -33,6 +41,8 @@ export default function DocumentsPage() {
   const [uploading, setUploading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // A temporary workspace has smaller upload limits, which the form states and checks.
+  const sandbox = Boolean(me?.expiresAt);
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +72,17 @@ export default function DocumentsPage() {
     e.preventDefault();
     const file = fileRef.current?.files?.[0];
     if (!file) return;
+    if (sandbox) {
+      const used = docs.reduce((sum, d) => sum + d.sizeBytes, 0);
+      if (file.size > SANDBOX_MAX_FILE_BYTES) {
+        const max = formatLimit(SANDBOX_MAX_FILE_BYTES, t, locale);
+        return setError(t("docs.tooLarge", { size: formatSize(file.size, t, locale), max }));
+      }
+      if (used + file.size > SANDBOX_MAX_BYTES) {
+        const max = formatLimit(SANDBOX_MAX_BYTES, t, locale);
+        return setError(t("docs.sandboxFull", { max, used: formatSize(used, t, locale) }));
+      }
+    }
     setUploading(true);
     setError(null);
     const body = new FormData();
@@ -91,6 +112,12 @@ export default function DocumentsPage() {
 
   const canUpload = me && atLeast(me.role, "member");
   const isAdmin = me && atLeast(me.role, "admin");
+  // In a sandbox the API re-indexes only a document whose indexing failed or got stuck: no button that can
+  // only fail.
+  const canReindex = (d: DocumentItem) =>
+    !sandbox ||
+    d.status === "failed" ||
+    (d.status !== "ready" && Date.now() - Date.parse(d.updatedAt) > SANDBOX_STUCK_MS);
 
   return (
     <Page>
@@ -115,7 +142,13 @@ export default function DocumentsPage() {
                 {fileName ?? t("docs.noFile")}
               </span>
               <span className="text-fg-subtle">
-                {t("docs.formats")} · {t("docs.maxSize")}
+                {t("docs.formats")} ·{" "}
+                {sandbox
+                  ? t("docs.maxSizeSandbox", {
+                      file: formatLimit(SANDBOX_MAX_FILE_BYTES, t, locale),
+                      total: formatLimit(SANDBOX_MAX_BYTES, t, locale),
+                    })
+                  : t("docs.maxSize")}
               </span>
             </p>
           </div>
@@ -206,10 +239,12 @@ export default function DocumentsPage() {
                 <td className="px-5 py-3 text-end">
                   {isAdmin && (
                     <div className="inline-flex gap-1">
-                      <button onClick={() => reindex(d.id)} data-testid="doc-reindex" className="btn btn-ghost btn-sm">
-                        <IconRefresh size={14} />
-                        {t("docs.reindex")}
-                      </button>
+                      {canReindex(d) && (
+                        <button onClick={() => reindex(d.id)} data-testid="doc-reindex" className="btn btn-ghost btn-sm">
+                          <IconRefresh size={14} />
+                          {t("docs.reindex")}
+                        </button>
+                      )}
                       <button
                         onClick={() => remove(d.id)}
                         data-testid="doc-delete"

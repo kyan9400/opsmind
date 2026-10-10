@@ -16,8 +16,9 @@ import {
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Logo } from "@/components/Logo";
 import { SandboxBanner } from "@/components/SandboxBanner";
-import { api, clearToken, type Me } from "@/lib/api";
+import { api, clearToken, getToken, type Me } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
+import { endSandbox } from "@/lib/sandbox";
 
 const links = [
   { href: "/dashboard", label: "nav.overview", testId: "nav-overview", Icon: IconOverview },
@@ -126,6 +127,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
             <button
               onClick={() => {
+                // A sandbox's token is its only key, so signing out ends it: ask first, then delete it now
+                // rather than leave the visitor's files to the expiry.
+                if (me?.expiresAt) {
+                  if (!confirm(t("sandbox.confirmEnd"))) return;
+                  endSandbox(getToken());
+                }
                 clearToken();
                 router.push("/login");
               }}

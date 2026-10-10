@@ -175,8 +175,8 @@ for (const q of examples.filter((e) => e.locale === "en")) {
 }
 // The demo documents are English. Without an LLM (LLM_PROVIDER=extractive, the compose default CI
 // records with) an answer quotes the sentences that share words with the question, so a Russian or
-// Arabic example finds nothing, or only a number coincidence ("1,000" vs "5,000"). Those examples replay
-// the answer to their English version instead, and the preview labels them so.
+// Arabic example finds nothing (at most a sentence that happens to share a number). Those examples
+// replay the answer to their English version instead, and the preview labels them so.
 for (const q of examples.filter((e) => e.locale !== "en")) {
   const en = english.get(q.key);
   if (en.body.provider !== "extractive") {
