@@ -214,9 +214,11 @@ helm upgrade --install opsmind deploy/helm/opsmind -n opsmind --create-namespace
 
 That run had 0 errors. It used the offline providers (hash embeddings, extractive answers), so `ask` measures retrieval and the API, not an LLM. Shared CI runners are noisy: the `ask` p95 has ranged from about 8 to 70 ms across runs, still far inside its budget. The CI `load` job fails if any budget or the 1% error budget is exceeded, and publishes a p50/p95/p99 table in the run summary. It runs with `AI_RATE_LIMIT=0`, because every k6 request uses one token from one IP.
 
-### Deployment (optional)
+### Deployment
 
-There is no permanently hosted instance; the [Codespaces demo](.devcontainer/README.md) covers trying it. The Terraform module and the deploy workflow are ready if you want to run your own server.
+The live demo runs the **serverless profile** on Vercel and Supabase ([diagram](#architecture), [setup guide](deploy/vercel/README.md)). Vercel's Git integration redeploys its three projects on every push to `main`. The CI `serverless` job tests that profile on every pull request, and the daily [live check](.github/workflows/live-check.yml) tests the running demo from outside.
+
+The **self-hosted path** below is ready but not running anywhere. CI validates it on every run (Terraform fmt/validate, the production compose file, the Caddyfile), and the deploy workflow skips itself until its secrets are set.
 
 The target is one Ubuntu VM running the same images with Docker Compose. [Caddy](https://caddyserver.com) is the only public entrypoint, with automatic Let's Encrypt HTTPS, security headers (HSTS, CSP) and HTTP/3. Postgres, Redis, the AI service and `/metrics` are never exposed.
 
@@ -233,7 +235,7 @@ export YC_TOKEN=$(yc iam create-token)
 terraform init && terraform apply              # prints app_url, e.g. https://203-0-113-7.sslip.io
 ```
 
-Terraform creates the secrets, and they are never stored in git. Deploys only ship commits that passed CI and wait for `/ready`. The compose part runs on any Ubuntu 22.04/24.04 VPS. Full guide: [infra/README.md](infra/README.md).
+Terraform creates the secrets, and they are never stored in git. The deploy workflow only ships commits that passed CI, and waits for `/ready`. The compose part runs on any Ubuntu 22.04/24.04 VPS. Full guide: [infra/README.md](infra/README.md).
 
 ## Run it locally
 
@@ -295,7 +297,7 @@ Every route except register, login and sandbox needs a bearer token, and the rol
 
 ## Demo workspace
 
-A read-only demo workspace ("Northwind Supply") has 180 days of KPIs with real incidents to find, and four company policies to ask questions about. The one-click way to see it is the **Open in GitHub Codespaces** badge at the top ([how it works](.devcontainer/README.md)). To seed it into a stack you are already running:
+A read-only demo workspace ("Northwind Supply") has 180 days of KPIs with real incidents to find, and four company policies to ask questions about. The one-click way to see it is **Try the live demo** on [opsmind-demo.vercel.app](https://opsmind-demo.vercel.app). The **Open in GitHub Codespaces** badge at the top runs the full stack with the same workspace ([how it works](.devcontainer/README.md)). To seed it into a stack you are already running:
 
 ```bash
 docker compose exec -e DEMO_EMAIL=demo@opsmind.dev -e DEMO_PASSWORD='choose-one' api node dist/seedDemo.js

@@ -1,6 +1,6 @@
 # Deploying OpsMind
 
-> **Optional.** OpsMind is not hosted permanently; to try it, use the one-click [Codespaces demo](../.devcontainer/README.md). Everything below is ready for anyone who wants their own server. Until the deploy secrets are set, the deploy workflow skips itself with a notice.
+> **Optional.** The live demo runs on the serverless profile ([deploy/vercel](../deploy/vercel/README.md)). This guide is the self-hosted path: your own server with the same images. CI validates it on every run (Terraform fmt/validate, the production compose file, the Caddyfile), but no instance of it is running now. Until the deploy secrets are set, the deploy workflow skips itself with a notice.
 
 One small VM runs the whole stack with Docker Compose. Caddy is the only public entrypoint and gets a free HTTPS certificate automatically.
 
