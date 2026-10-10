@@ -41,6 +41,9 @@ locals {
     LLM_PROVIDER=${var.llm_provider}
     OPENAI_API_KEY='${var.openai_api_key}'
     ANTHROPIC_API_KEY='${var.anthropic_api_key}'
+    LLM_BASE_URL='${var.llm_base_url}'
+    LLM_MODEL='${var.llm_model}'
+    LLM_API_KEY='${var.llm_api_key}'
   EOT
 }
 
@@ -165,6 +168,12 @@ resource "yandex_compute_instance" "app" {
   }
 
   lifecycle {
+    # Without both, the AI service would answer every question with the offline fallback.
+    precondition {
+      condition     = var.llm_provider != "openai-compatible" || (var.llm_base_url != "" && var.llm_model != "")
+      error_message = "llm_provider = \"openai-compatible\" needs llm_base_url and llm_model."
+    }
+
     ignore_changes = [
       # The image family moves to a newer build every few weeks; without this every plan
       # would want to recreate the VM and wipe the Postgres volume on its disk.

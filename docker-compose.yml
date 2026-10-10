@@ -79,6 +79,16 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text} # 768-d; a multilingual model helps cross-language questions
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1}
+      # LLM_PROVIDER=openai-compatible: any /chat/completions host (Groq, OpenRouter, vLLM...). Empty keeps
+      # the service defaults (30 s timeout, 1024 tokens, no extra body, 300 LLM calls a day for the whole
+      # deployment; past that, answers and summaries fall back to the offline ones).
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_EXTRA_BODY: ${LLM_EXTRA_BODY:-}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
+      LLM_DAILY_MAX: ${LLM_DAILY_MAX:-}
       # Ingest limits; empty keeps the service defaults (200,000 characters, 300 chunks, 50 PDF pages,
       # 10 MB of PDF page content, 20 s to read a PDF).
       INGEST_MAX_CHARS: ${INGEST_MAX_CHARS:-}
