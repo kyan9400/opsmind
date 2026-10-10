@@ -1,13 +1,14 @@
-# Live demo on Vercel + Neon (free, no bank card)
+# Live demo on Vercel + Supabase (free, no bank card)
 
-This guide puts the real OpsMind app online for free:
+This guide puts the real OpsMind app online for free. It is how the live demo at
+[opsmind-demo.vercel.app](https://opsmind-demo.vercel.app) runs:
 
 | Part | Where it runs | Plan |
 | --- | --- | --- |
 | web (Next.js) | Vercel project 1, folder `apps/web` | Hobby (free) |
 | api (Express) | Vercel project 2, folder `apps/api` | Hobby (free) |
 | ai (FastAPI) | Vercel project 3, folder `services/ai` | Hobby (free) |
-| Postgres 16 + pgvector | Neon, AWS Frankfurt | Free |
+| Postgres + pgvector | Supabase, a region in Europe ([Neon](#neon-instead-of-supabase) works too) | Free |
 
 Nothing here needs a bank card. The whole setup takes about 1–2 hours.
 
@@ -22,16 +23,21 @@ variables below, so Docker Compose, Helm/kind and Codespaces run exactly as befo
 - **A daily job refreshes the demo.** Vercel Cron calls `GET /api/internal/cron/seed` once a day
   (`apps/api/vercel.json`). It moves the demo KPIs to "today", re-indexes any document that is not ready,
   and keeps the free database awake. Only a caller with the `CRON_SECRET` can run it.
-- **Visitors can only look.** Sign-up is closed (`ALLOW_REGISTRATION=false`), visitors use the read-only
-  demo login, uploads are limited to 4 MB, and `/metrics` is hidden (`METRICS_PUBLIC=false`).
+- **Visitors can only look.** Sign-up is closed (`ALLOW_REGISTRATION=false` on api, and
+  `NEXT_PUBLIC_REGISTRATION=false` on web hides its links), visitors use the read-only demo login, uploads
+  are limited to 4 MB, and `/metrics` and the ai service's API docs are hidden.
 - **Or they try their own data.** With `ALLOW_SANDBOX=true` (api) and `NEXT_PUBLIC_SANDBOX=true` (web),
-  **Try it with your own data** gives each visitor a private workspace for 24 hours, with sample data and
+  **Try it with your own data** gives each visitor a private workspace for 3 hours, with sample data and
   owner rights (upload, CSV import). Limits: 3 per IP per hour and 20 at once. Each one holds at most
   10 documents and 1 MB of files (512 KB per file) and 5,000 KPI points, and makes at most 20 uploads or
-  imports per hour. When the database grows past 350 MB, new sandboxes and sandbox uploads stop (503)
-  until it is smaller again, long before the free database reaches its 500 MB. After 24 hours
-  the visitor's access ends; the data is deleted when the next visitor creates a sandbox, or by the daily
-  job at the latest.
+  imports per hour; all sandboxes together make at most 30 per hour. When the database grows past
+  350 MB, new sandboxes and sandbox uploads stop (503) until it is smaller again, long before the free
+  database reaches its 500 MB. Signing out deletes the sandbox at once. Otherwise the visitor's access
+  ends after 3 hours, and the data is deleted when the next visitor creates a sandbox, or by the daily job
+  at the latest.
+- **Model calls have a daily cap.** With a real LLM, `LLM_DAILY_MAX` (default 300) limits model calls per
+  day for the whole demo, so it stays inside a free daily quota. Above it, answers are extractive and the
+  analytics summary uses its template until the next day.
 - **Cold starts.** After a quiet period the first click can take about 3–8 seconds. Nothing needs a manual wake-up.
 
 ## What you need
@@ -46,16 +52,43 @@ variables below, so Docker Compose, Helm/kind and Codespaces run exactly as befo
 
 1. Open <https://vercel.com/signup>. Click **Continue with GitHub**. Choose **Hobby** ("personal projects").
    Vercel does not ask for a card on Hobby.
-2. Open <https://console.neon.tech/signup>. Click **Continue with GitHub**. Neon Free does not ask for a card.
+2. Open <https://supabase.com/dashboard> and sign in with GitHub. Use the free plan; it does not ask for a
+   card.
 
 If a page does not open or keeps showing "Vercel Security Checkpoint", read
 [If a website does not open from Russia](#if-a-website-does-not-open-from-russia).
 
-## Step 2. Create the database (Neon)
+## Step 2. Create the database (Supabase)
 
-> Neon not available in your region? Use Supabase instead: [SUPABASE.md](SUPABASE.md).
+1. In Supabase, click **New project**: any name, a region in Europe (Frankfurt is closest to the Vercel
+   functions), and a database password. Use letters and digits only, or see
+   [Troubleshooting](#troubleshooting) for the characters that need escaping. Save it in your notes as
+   `DB_PASSWORD`. Forgot it? **Project Settings → Database → Reset database password**.
+2. Click **Connect** (top of the project page). You need **two** connection strings. In each one, replace
+   `[YOUR-PASSWORD]` with your `DB_PASSWORD`:
+   - **Transaction pooler** (port **6543**): the api and ai projects use this one.
+   - **Session pooler** (port **5432**): the GitHub workflow in Step 6 uses this one.
 
-1. In Neon, create a new project:
+   Do not use the "Direct connection" string: on the free plan it only works over IPv6, which GitHub
+   Actions does not have.
+3. Add the SSL settings to the end, and save three values in your notes:
+
+   | Save as | Value | Used in |
+   | --- | --- | --- |
+   | `AI_DB_URL` | Transaction pooler string + `?sslmode=require` | Step 4 (ai) |
+   | `API_DB_URL` | Transaction pooler string + `?sslmode=require&uselibpqcompat=true` | Step 5 (api) |
+   | `SEED_DB_URL` | Session pooler string + `?sslmode=require&uselibpqcompat=true` | Step 6 (GitHub) |
+
+   These encrypt the connection. Supabase signs its certificates with its own authority, so the stricter
+   "verify" modes would reject them. `uselibpqcompat=true` makes the Node.js driver (api and the workflow)
+   read `sslmode` the way libpq does; the ai service uses libpq itself, so its string has only `sslmode`.
+
+### Neon instead of Supabase
+
+Neon Free works the same way, but it blocks some regions ("Access Blocked in Your Region"). Sign up at
+<https://console.neon.tech/signup> with GitHub (no card), then:
+
+1. Create a new project:
    - **Project name:** `opsmind`
    - **Postgres version:** `16`
    - **Cloud provider:** `AWS`
@@ -67,12 +100,13 @@ If a page does not open or keeps showing "Vercel Security Checkpoint", read
    - Set the compute size to **0.25 CU** for both minimum and maximum. Click **Save**.
 3. Click **Connect** (top of the project page). You will copy **two** connection strings:
    - **Pooled:** "Connection pooling" switch **ON**. The host name contains `-pooler`.
-     Save it in your notes as `POOLED_URL`.
+     Save it in your notes as both `AI_DB_URL` and `API_DB_URL`.
    - **Direct:** "Connection pooling" switch **OFF**. The host name has **no** `-pooler`.
-     Save it in your notes as `DIRECT_URL`.
+     Save it in your notes as `SEED_DB_URL`.
 
    Both look like `postgresql://neondb_owner:...@ep-...eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`.
-   Copy them exactly as shown.
+   Copy them exactly as shown; they already carry their SSL settings.
+4. In Step 4, leave out `DB_PREPARED_STATEMENTS`.
 
 ## Step 3. Make three random passwords
 
@@ -107,10 +141,11 @@ No website is needed. Never paste these values into a chat, an issue or a commit
 
    | Name | Value | Where the value comes from |
    | --- | --- | --- |
-   | `DATABASE_URL` | your `POOLED_URL` | Step 2 |
+   | `DATABASE_URL` | your `AI_DB_URL` | Step 2 |
    | `AI_SERVICE_TOKEN` | your `AI_SERVICE_TOKEN` | Step 3 |
    | `DB_POOL_MAX` | `2` | type it |
    | `DB_POOL_CHECK` | `true` | type it |
+   | `DB_PREPARED_STATEMENTS` | `false` | type it (Supabase only: its transaction pooler cannot keep prepared statements) |
    | `METRICS_PUBLIC` | `false` | type it |
 
 5. Click **Deploy**. Wait until you see "Congratulations".
@@ -134,7 +169,7 @@ The region is Frankfurt (`fra1`); `services/ai/vercel.json` sets it.
 
    | Name | Value | Where the value comes from |
    | --- | --- | --- |
-   | `DATABASE_URL` | your `POOLED_URL` | Step 2 |
+   | `DATABASE_URL` | your `API_DB_URL` | Step 2 |
    | `JWT_SECRET` | your `JWT_SECRET` | Step 3 |
    | `AI_SERVICE_URL` | your `AI_URL` | Step 4 |
    | `AI_SERVICE_TOKEN` | your `AI_SERVICE_TOKEN` (same as on ai) | Step 3 |
@@ -167,12 +202,13 @@ The region (Frankfurt) and the daily job are set in `apps/api/vercel.json`.
 
    | Name | Value |
    | --- | --- |
-   | `NEON_DIRECT_URL` | your `DIRECT_URL` (the one **without** `-pooler`) |
+   | `DATABASE_DIRECT_URL` | your `SEED_DB_URL` |
    | `AI_SERVICE_URL` | your `AI_URL` |
    | `AI_SERVICE_TOKEN` | your `AI_SERVICE_TOKEN` |
 
    Optional: `DEMO_EMAIL` and `DEMO_PASSWORD`. Add them only if you changed them in Step 5. Without them
-   the workflow uses `demo@opsmind.dev` / `opsmind-demo`.
+   the workflow uses `demo@opsmind.dev` / `opsmind-demo`. (An older setup may name the first secret
+   `NEON_DIRECT_URL`; the workflow accepts both names.)
 2. Open **Actions** → **Demo database** (left list) → **Run workflow** → branch `main` → **Run workflow**.
 3. Wait for the green check (about 2–3 minutes). The run summary says "Demo database ready".
 
@@ -195,6 +231,7 @@ indexes the documents through your ai project. You can run it again at any time;
    | `NEXT_PUBLIC_DEMO_EMAIL` | `demo@opsmind.dev` | same as `DEMO_EMAIL` on api |
    | `NEXT_PUBLIC_DEMO_PASSWORD` | `opsmind-demo` | same as `DEMO_PASSWORD` on api |
    | `NEXT_PUBLIC_SANDBOX` | `true` | shows the sandbox button; only together with `ALLOW_SANDBOX=true` on api |
+   | `NEXT_PUBLIC_REGISTRATION` | `false` | hides the sign-up links and form; matches `ALLOW_REGISTRATION=false` on api |
 
    Why: the browser talks only to the web address, and the web server passes every `/api/...` call to the
    api project. So no other address is needed in the browser.
@@ -208,9 +245,9 @@ Open these addresses (replace with yours):
 
 | Address | Expected result |
 | --- | --- |
-| `https://opsmind-demo.vercel.app` | The start page. Click **Try the live demo**. You land on the analytics dashboard. |
+| `https://opsmind-demo.vercel.app` | The start page, with no **Create workspace** link. Click **Try the live demo**. You land on the analytics dashboard. |
 | Ask page, question "How many days do customers have to request a refund?" | An answer with "30 days" and a source. Then ask "And after 30 days?": the second answer follows on from the first. |
-| Start page → **Try it with your own data** | The Documents page of a new workspace with a "deleted in 23 hours" bar. The 4 sample files become **ready** within a minute; upload a small `.txt` and ask about it. |
+| Start page → **Try it with your own data** | The Documents page of a new workspace with a "deleted in 2 hours" bar (whole hours, rounded down). The 4 sample files become **ready** within a minute; upload a small `.txt` and ask about it. **Sign out** asks first, then deletes the workspace. |
 | `API_URL/health` | `{"status":"ok"}` |
 | `API_URL/ready` | `{"status":"ready"}` |
 | `API_URL/metrics` | `{"error":"not found"}` (hidden on purpose) |
@@ -241,6 +278,7 @@ have free tiers.
    | `LLM_TIMEOUT_S` | `30` | optional, seconds; this is the default |
    | `LLM_MAX_TOKENS` | `1024` | optional, answer length limit; this is the default |
    | `LLM_EXTRA_BODY` | unset | optional JSON object added to every request (see Cloudflare below) |
+   | `LLM_DAILY_MAX` | `300` | optional, model calls per day for the whole demo; this is the default. Keep it under your provider's free daily quota |
 
    **The key goes only into the ai project.** The api and web projects never call the model and must not
    get `LLM_API_KEY`. Never commit the key or paste it into an issue or chat.
@@ -276,7 +314,9 @@ ai service falls back to the extractive answer and reports `"provider": "extract
 happens when the reply is empty, or is cut off at `LLM_MAX_TOKENS` before it cites a source (a cut-off
 reply that does cite one is shown with a trailing "…"). Thinking a model writes into the reply
 (`<think>…</think>`, Gemma's thought channel) is removed. The analytics summary falls back to its
-template the same way. So a used-up free quota never breaks the demo.
+template the same way, and so do both once `LLM_DAILY_MAX` calls were made that day (counted in the
+database table `llm_usage`, so all instances share the count). So a used-up free quota never breaks the
+demo.
 
 ## Everyday use
 
@@ -288,9 +328,9 @@ template the same way. So a used-up free quota never breaks the demo.
   run migrations, so run **Actions → Demo database → Run workflow** and pick the **pull request's branch**,
   before you merge. Migrations only add things, so the running version keeps working, and the new one
   finds its tables ready. The sandbox update adds `004_sandbox.sql`; without it, every page after sign-in
-  fails with an error.
-- Put the web address in your CV. Add the SourceCraft "interactive preview" link as a backup for people
-  whose network cannot open `vercel.app`.
+  fails with an error. The daily LLM cap adds `005_llm_usage.sql`.
+- Some networks cannot open `vercel.app`. The SourceCraft [interactive preview](../sourcecraft/README.md)
+  is the fallback the main README offers them.
 
 ## If a website does not open from Russia
 
@@ -300,8 +340,8 @@ it and has no fix yet).
 - **Vercel dashboard hangs on "Vercel Security Checkpoint":** wait 30 seconds and reload once. If it still
   hangs, use another network (mobile internet instead of home Wi-Fi, or the other way round), another
   browser, or a VPN only for the setup. You need the dashboard only for setup and changes.
-- **Neon console does not load:** same advice. After Step 2 you do not need the Neon console again,
-  unless you want to look at usage.
+- **Supabase or Neon console does not load:** same advice. After Step 2 you do not need the database
+  console again, unless you want to look at usage.
 - **The demo itself (`*.vercel.app`) does not open for a visitor:** you cannot fix this from your side.
   Give that visitor the SourceCraft preview link or the Codespaces button in the main README.
 - GitHub Actions runs outside Russia, so Step 6 always works, even when your own network has problems.
@@ -311,12 +351,14 @@ it and has no fix yet).
 | What you see | What to do |
 | --- | --- |
 | `API_URL/health` or `AI_URL/health` shows **500** and `FUNCTION_INVOCATION_FAILED` | An environment variable is missing or wrong, so the service stops before it can answer. Open that project → **Logs**. The first red error names the variable, for example: `JWT_SECRET`, `AI_SERVICE_TOKEN` or `CRON_SECRET` shorter than 16 characters; `DATABASE_URL` missing; `ALLOW_REGISTRATION`, `METRICS_PUBLIC` or `DB_POOL_CHECK` not `true` or `false`; a number setting that is not a number. Fix it in **Settings → Environment Variables**, then **Redeploy**. |
+| The logs say `DATABASE_URL` is "not a valid URL" | The value was pasted with quote marks around it, or the database password contains `@`, `#`, `/`, `?`, `:` or `%`. Remove the quotes. Write special characters in the password URL-encoded: `@` → `%40`, `#` → `%23`, `/` → `%2F`, `?` → `%3F`, `:` → `%3A`, `%` → `%25`. Or reset the password to one with letters and digits only. |
 | api build error `INVALID_CRON_SECRET` | `CRON_SECRET` has a space or a line break before or after it. Paste the value again with nothing around it, then **Redeploy**. |
 | api build error: "No entrypoint found" | Root Directory must be `apps/api`. Build and Output Settings must be default (no overrides). |
 | api build error about `tsc` / TypeScript | Remove `NODE_ENV` from the api environment variables. Redeploy. |
 | ai build installs nothing, or `ModuleNotFoundError: fastapi` | Root Directory must be `services/ai`. Framework Preset `FastAPI`. |
-| `API_URL/ready` shows `db unavailable` | `DATABASE_URL` on api is wrong (use the pooled one, copied exactly), then **Redeploy** api. |
-| Workflow fails at **Check the repository secrets** | Read the red message. Add the missing secret. `NEON_DIRECT_URL` must be the one **without** `-pooler`. |
+| `API_URL/ready` shows `db unavailable` | `DATABASE_URL` on api is wrong (use `API_DB_URL` from Step 2, copied exactly), then **Redeploy** api. |
+| Workflow fails at **Check the repository secrets** | Read the red message. Add the missing secret. `DATABASE_DIRECT_URL` must be a session-level string: Supabase's **Session pooler** (port 5432), or Neon's string **without** `-pooler`. |
+| `gh secret set -f file.env` fails with "unexpected character" | The env-file reader rejects some values. Set each secret on its own instead: `Get-Content -Raw value.txt \| gh secret set NAME -R <owner>/<repo>` (PowerShell) or `gh secret set NAME < value.txt` (bash). |
 | Workflow fails at **The AI service answers** | `AI_SERVICE_URL` must be the ai **Domains** address (`https://...vercel.app`), not a deployment address. Open it + `/health` in a browser. |
 | Workflow fails at **Seed the demo workspace**: "documentsFailed" | `AI_SERVICE_TOKEN` differs between GitHub, api and ai. Make all three the same, redeploy ai and api, run the workflow again. |
 | "Try the live demo" says "invalid credentials" | Run the workflow (Step 6). `DEMO_EMAIL`/`DEMO_PASSWORD` on api must equal `NEXT_PUBLIC_DEMO_EMAIL`/`NEXT_PUBLIC_DEMO_PASSWORD` on web. |
@@ -325,17 +367,28 @@ it and has no fix yet).
 | Answers or insights show "AI service unavailable" | Open `AI_URL/health`. If it fails, open the ai project → **Logs**. Check `DATABASE_URL` on ai. |
 | "too many attempts" for every visitor | All visitors may reach the api through the web server's address. Add `AUTH_RATE_LIMIT` = `100` on api and redeploy. |
 | Upload says 413 | Files over 4 MB are refused on the live demo (Vercel accepts at most 4.5 MB per request). In a sandbox the limits are 512 KB per file and 1 MB in total. |
-| Sandbox button or sandbox upload says the demo database is nearly full (503) | The database is over 350 MB (`SANDBOX_DB_BRAKE_BYTES`). Check **Supabase → Reports → Database**. Expired sandboxes are deleted automatically, and new data reuses their space, but the size Supabase shows only goes down after a `VACUUM FULL` of the big tables (`chunks`, `documents`) in the SQL Editor. The read-only demo login keeps working the whole time. |
-| Sign-up says "registration is disabled" | Expected on the live demo. |
+| Sandbox button says "There are too many temporary workspaces right now" | The api answered 503. Either 20 sandboxes are live (`SANDBOX_MAX_ACTIVE`; they free up as they expire or their visitors sign out), or the database is over 350 MB (next row). Check the database size first. |
+| A sandbox upload or import says the demo database is nearly full (503) | The database is over 350 MB (`SANDBOX_DB_BRAKE_BYTES`). Check **Supabase → Reports → Database**. Expired sandboxes are deleted automatically, and new data reuses their space, but the size Supabase shows only goes down after a `VACUUM FULL` of the big tables (`chunks`, `documents`) in the SQL Editor. The read-only demo login keeps working the whole time. |
+| A sandbox upload or import says temporary workspaces "have reached their uploads and imports for this hour" (503) | All sandboxes together made 30 uploads, re-indexes or imports in the last hour (`SANDBOX_GLOBAL_WRITE_RATE_LIMIT`). It clears by itself as the hour moves on. Raise it on api only if **Usage** in Vercel shows CPU time to spare. |
+| The start page or the login page offers sign-up, and it answers "Sign-up is closed on this site." | Add `NEXT_PUBLIC_REGISTRATION` = `false` on web, then **Redeploy** web (it is fixed at build time). |
 | First click after a long pause is slow | Expected (3–8 seconds): the functions and the database wake up. |
 | Vercel email "usage limit reached" | The free plan stops until the next 30-day period. Usually this means bots. Check **Usage** in Vercel. |
+| Supabase dashboard says the project is paused | Supabase pauses a free project after 7 days without activity; the daily cron normally prevents it. Click **Restore project**. |
 | Neon email "compute suspended" / out of hours | Check that the compute is 0.25 CU (Step 2). It starts again next month. |
+| A secret value appeared in an error message you shared | Replace it: make a new random value, update it everywhere it is used (Vercel projects and GitHub secrets), then redeploy. |
 
 ## Free-plan limits (checked September 2026)
 
 - Vercel Hobby: 1,000,000 function calls and 4 hours of active CPU per month, 300 s per request,
   4.5 MB per request body, one function region, cron at most once a day.
   <https://vercel.com/docs/plans/hobby>
+- Supabase Free: a 500 MB database. Above 500 MB Supabase makes the whole project read-only, and then even
+  the demo login fails (every sign-in writes an audit row). Sandboxes cannot get it there: each holds at
+  most 1 MB of files, roughly 15 MB of text with its chunks, embeddings and indexes; at most 20 exist at
+  once; and above 350 MB the api stops creating sandboxes and taking sandbox uploads until the size falls
+  again. The brake also covers PDFs, whose compressed text can be larger than the file. A free project is
+  paused after 7 days without activity, which the daily cron prevents.
+  <https://supabase.com/pricing>
 - Neon Free: 100 compute hours per month (0.25 CU runs about 400 hours), 0.5 GB storage, 5 GB transfer.
   The database sleeps after 5 minutes without queries and wakes in well under a second.
   <https://neon.com/docs/introduction/plans>
@@ -349,29 +402,34 @@ it and has no fix yet).
 | `PG_POOL_MAX` | api | `10` | `3` | Postgres connections per instance. |
 | `MAX_UPLOAD_BYTES` | api | `10485760` | `4194304` | Largest upload. |
 | `ALLOW_REGISTRATION` | api | `true` | `false` | `false`: sign-up answers 403. |
+| `NEXT_PUBLIC_REGISTRATION` | web | unset (on) | `false` | `false` hides the sign-up links and form (build time). Pair with `ALLOW_REGISTRATION=false`. |
 | `METRICS_PUBLIC` | api, ai | `true` | `false` | `false`: `/metrics` answers 404. |
 | `API_DOCS` | ai | `false` | `false` | `true` serves the interactive API docs (`/docs`, `/redoc`, `/openapi.json`). Off by default, because on Vercel the ai service is public and only `AI_SERVICE_TOKEN` protects `/v1/*`. |
 | `CRON_SECRET` | api | unset | random | Enables `/api/internal/cron/seed` for `Authorization: Bearer <secret>`. |
 | `DEMO_EMAIL`, `DEMO_PASSWORD` | api | unset | demo login | Used by the daily seed. |
-| `ALLOW_SANDBOX` | api | `false` | `true` | `true`: `POST /api/v1/sandbox` creates 24-hour private workspaces. Expired ones are deleted when the next one is created (10 at a time) and by the daily job. |
-| `SANDBOX_RATE_LIMIT` | api | `3` | `3` | Sandboxes per IP per hour (per instance); `0` disables the limit. |
+| `ALLOW_SANDBOX` | api | `false` | `true` | `true`: `POST /api/v1/sandbox` creates private workspaces, and `DELETE /api/v1/sandbox` lets their owner end one early (the web app does it on sign-out). Expired ones are deleted when the next one is created (10 at a time) and by the daily job. |
+| `SANDBOX_TTL_HOURS` | api | `3` | `3` | How long a sandbox lasts; its sign-in token expires at the same time. |
+| `SANDBOX_RATE_LIMIT` | api | `3` | `3` | Sandboxes per IP per hour (per instance); refused attempts do not count. `0` disables the limit. |
 | `SANDBOX_MAX_ACTIVE` | api | `20` | `20` | Live sandboxes at once, across all instances. |
 | `SANDBOX_MAX_DOCUMENTS` | api | `10` | `10` | Documents per sandbox, the 4 samples included. |
 | `SANDBOX_MAX_BYTES` | api | `1048576` | `1048576` | Total size of a sandbox's files (1 MB), samples included. More is refused with 413. |
 | `SANDBOX_MAX_FILE_BYTES` | api | `524288` | `524288` | Largest file a sandbox can upload, document or CSV (512 KB). |
 | `SANDBOX_MAX_CSV_ROWS` | api | `5000` | `5000` | KPI data points a sandbox can hold in total, over all imports (the samples are 1,080). |
 | `SANDBOX_WRITE_RATE_LIMIT` | api | `20` | `20` | Uploads, re-indexes, CSV imports and demo loads per sandbox per hour, counted in the database too; `0` disables. |
+| `SANDBOX_GLOBAL_WRITE_RATE_LIMIT` | api | `30` | `30` | The same writes for all sandboxes together per hour, counted in the database; above it 503. `0` disables. |
 | `SANDBOX_DB_BRAKE_BYTES` | api | `367001600` | `367001600` | Above this database size (350 MB) new sandboxes and sandbox writes get 503. Checked once a minute per instance; `0` disables. |
 | `NEXT_PUBLIC_SANDBOX` | web | unset | `true` | Shows **Try it with your own data** (build time). Pair with `ALLOW_SANDBOX=true`. |
 | `NEXT_PUBLIC_SITE_URL` | web | `http://localhost:3000` (`https://$DOMAIN` in `docker-compose.prod.yml`) | unset: Vercel's production domain is used | Public address in the link-preview image URL, `robots.txt` and `sitemap.xml` (build time). On Vercel, set it only for a custom domain. |
 | `DB_POOL_MAX` | ai | `10` | `2` | Postgres connections per instance. |
 | `DB_POOL_CHECK` | ai | `false` | `true` | Test each connection before use (instances freeze between requests). |
+| `DB_PREPARED_STATEMENTS` | ai | `true` | `false` | `false` turns off prepared statements, which Supabase's transaction pooler cannot keep. |
 | `INGEST_MAX_CHARS` | ai | `200000` | default | Characters of extracted text per document; above it the document fails with "document too long". `0`: no limit. |
 | `INGEST_MAX_CHUNKS` | ai | `300` | default | Chunks per document (each stores a vector and index entries, ~8 KB). `0`: no limit. |
 | `INGEST_MAX_PDF_PAGES` | ai | `50` | default | PDF pages, checked before any text is extracted. `0`: no limit. |
 | `INGEST_MAX_PDF_CONTENT_MB` | ai | `10` | default | Decoded PDF page content, checked before any page is parsed; above it the document fails with "document too complex". Also caps one decoded stream at 4 MB. `0`: no limit. |
 | `INGEST_MAX_PDF_SECONDS` | ai | `20` | default | Time to read one PDF; checked between drawing operators, so it stops a slow page part way. `0`: no limit. |
 | `LLM_EXTRA_BODY` | ai | unset | `{"chat_template_kwargs":{"enable_thinking":false}}` with Cloudflare | JSON object added to every `openai-compatible` request. |
+| `LLM_DAILY_MAX` | ai | `300` | `300` | Model calls per day for the whole deployment, counted in the database (`llm_usage`). Above it answers and summaries use the offline fallbacks until the next day. |
 
 Files: `apps/api/vercel.json` (Express preset, `dist/` entry, Frankfurt, daily cron, PDF fonts),
 `services/ai/vercel.json` and `services/ai/index.py` (FastAPI entry, Frankfurt),
