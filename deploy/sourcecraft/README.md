@@ -11,8 +11,8 @@ it up once.
 
 ## Set it up (once, about 20 minutes)
 
-Do steps 1–5 **before** you merge the pull request with the preview into `main`. Then the first run
-after the merge publishes the site by itself.
+Steps 1–5 give the **Preview** workflow somewhere to publish. Until they are done it still builds and
+tests the site, and skips only the publishing.
 
 1. Open <https://sourcecraft.dev> and sign in with your **Yandex ID**.
 2. Create an **organization** and make it **public**. Sites only work for a public repository in a
@@ -27,10 +27,8 @@ after the merge publishes the site by itself.
    - **Secrets** tab → **New repository secret**: name `SOURCECRAFT_TOKEN`, value = the token.
    - **Variables** tab → **New repository variable**: name `SOURCECRAFT_REPO`, value =
      `<organization slug>/opsmind`, for example `kyan/opsmind`.
-6. Merge the pull request into `main`. The merge starts the **Preview** workflow by itself: open
-   **Actions → Preview** and wait until the run is green (about 10 minutes). The workflow is listed in
-   **Actions** only after it is on `main`. To run it again later: **Actions → Preview → Run workflow**
-   (branch `main`).
+6. Open **Actions → Preview → Run workflow** (branch `main`) and wait until the run is green (about
+   10 minutes). A push to `main` starts it too.
 7. Open the finished run. The summary shows the address:
    `https://<organization slug>.sourcecraft.site/opsmind/`. The first time, SourceCraft needs **a few
    minutes** before the page appears.
@@ -40,9 +38,8 @@ after the merge publishes the site by itself.
 
    You should see the yellow banner. **Open the demo workspace** shows 6 KPI cards, **Ask AI**
    answers the example questions, and **AR** switches the page to right-to-left.
-9. In your CV, call it **"Interactive preview (recorded data)"**, never "live demo".
 
-After this, every push to `main` records fresh data and publishes again. You do nothing.
+After this, every push to `main` records fresh data and publishes again.
 
 ## How it works
 
@@ -66,16 +63,16 @@ After this, every push to `main` records fresh data and publishes again. You do 
 
 | What you see | What to do |
 | --- | --- |
-| There is no **Preview** workflow in **Actions** | The pull request is not merged into `main` yet (step 6). |
+| There is no **Preview** workflow in **Actions** | In a fork, GitHub keeps workflows off until you enable them on the **Actions** tab. |
 | The **publish** step says **"SourceCraft publish skipped"** | The secret or the variable is missing or misspelled (step 5). Fix it, then **Run workflow**. The built site is still in the run's **interactive-preview** artifact. |
 | The **publish** job is grey (skipped) | The run was not on `main`. Only `main` is published. |
 | **Authentication failed** or **403** in the publish step | The token expired or cannot push. Create a new token (step 4) and replace the secret. |
 | **rejected** / **protected branch** when pushing `site` | In the SourceCraft repository settings, allow force-push to the branch `site`, or remove the branch rule. |
 | The address shows **404** | Wait 5 minutes. Check that the organization and the repository are both **public**, and that the repository name is exactly the part after `/` in `SOURCECRAFT_REPO`. Open the repository on sourcecraft.dev: its default branch must have the file `.sourcecraft/sites.yaml`. If the default branch is another one, run the workflow again (it writes the file to the default branch). |
 | The page is white or has no styles | The repository was renamed. Update `SOURCECRAFT_REPO` and run the workflow again: the site is built for the path `/<repository>/`. |
-| The start page works, but a direct link to an inner page shows 404 | Open the start page and use the menu. Tell the developer: the host did not serve that folder's `index.html`. |
+| The start page works, but a direct link to an inner page shows 404 | Open the start page and use the menu. The host did not serve that folder's `index.html`; open an issue with the address. |
 | **429 Too Many Requests** | SourceCraft limits many fast requests. Wait a few seconds and reload. |
-| The **record** step fails (documents not ready, no KPIs, or "cites no demo document") | Run the workflow again. If it fails again, open the log of the failed run and send it to the developer. |
+| The **record** step fails (documents not ready, no KPIs, or "cites no demo document") | Run the workflow again. If it fails again, open an issue with the log of the failed run. |
 
 ## Try it on your computer (optional)
 

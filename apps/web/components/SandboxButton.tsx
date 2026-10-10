@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconArrowRight, IconUpload } from "@/components/icons";
-import { api, ApiError, setToken } from "@/lib/api";
+import { api, ApiError, getToken, setToken, type Me } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW } from "@/lib/preview";
 
@@ -33,8 +33,16 @@ export function SandboxButton({
     setBusy(true);
     setError(null);
     try {
-      const { token } = await api<{ token: string; expiresAt: string }>("/sandbox", { method: "POST" });
-      setToken(token);
+      // A visitor coming back reopens their sandbox instead of making another: it holds their uploads, and
+      // each network may create only a few an hour. /auth/me refuses an expired sandbox, so expiresAt here is ahead.
+      const current = getToken();
+      const me = current ? await api<Me>("/auth/me").catch(() => null) : null;
+      if (current && me?.expiresAt) {
+        setToken(current, me.expiresAt);
+        return router.push("/dashboard/documents");
+      }
+      const { token, expiresAt } = await api<{ token: string; expiresAt: string }>("/sandbox", { method: "POST" });
+      setToken(token, expiresAt);
       // Documents first: the sample files index in the background there, next to the upload form.
       router.push("/dashboard/documents");
     } catch (err) {
@@ -51,7 +59,9 @@ export function SandboxButton({
         onClick={start}
         disabled={busy}
         data-testid="sandbox-start"
-        className={`btn ${size === "lg" ? "btn-lg" : ""} btn-${variant} group`}
+        // Wraps instead of spilling over its edges when a label is too long for a narrow phone; min-h keeps
+        // the usual height for one line.
+        className={`btn ${size === "lg" ? "btn-lg min-h-11" : "min-h-9"} btn-${variant} group h-auto max-w-full py-1.5 text-center whitespace-normal [&>svg]:shrink-0`}
       >
         <IconUpload size={size === "lg" ? 18 : 16} />
         {busy ? t("sandbox.loading") : t("sandbox.button")}

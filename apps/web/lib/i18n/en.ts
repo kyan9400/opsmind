@@ -5,11 +5,18 @@ import type { PluralForms } from "./types";
  * is a compile error until every language has it. Plural entries are objects keyed by CLDR category.
  */
 export const en = {
-  "meta.description": "AI-powered operations and knowledge platform",
+  // Whole site title per language, so each translation controls its own case and word order.
+  "meta.title": "OpsMind — AI-powered operations and knowledge platform",
+  // Text under the title in link previews (LinkedIn, Telegram, Slack) and search results.
+  "meta.description":
+    "KPI dashboards that flag anomalies, and cited AI answers from your documents — in English, Russian and Arabic.",
 
   "lang.label": "Language",
   "common.loading": "Loading…",
   "common.partial": "(partial)",
+  // When an error comes from the hosting platform or a proxy rather than the API, so it has no message.
+  "common.requestFailed": "The request failed (HTTP {status}). Please try again.",
+  "common.tooLarge": "The file is too large to upload.",
 
   "demo.button": "Try the live demo",
   "demo.loading": "Signing in…",
@@ -57,6 +64,14 @@ export const en = {
   "login.email": "Email",
   "login.password": "Password (min 8 chars)",
   "login.submitSignIn": "Sign in",
+  // Tab title for /login, which switches between both forms in place.
+  "login.metaTitle": "Sign in or sign up",
+  // Tab title for /login when sign-up is closed (NEXT_PUBLIC_REGISTRATION=false).
+  "login.metaTitleSignIn": "Sign in",
+  "login.registrationClosed": "Sign-up is closed on this site.",
+  // Shown on /login when the stored session is refused (the dashboard sends every 401 there).
+  "login.sessionExpired": "Your session has expired. Please sign in again.",
+  "login.sandboxExpired": "Your temporary workspace has expired, and its files are no longer available.",
   "login.submitRegister": "Create workspace",
   "login.toRegister": "New here? Create a workspace",
   "login.toSignIn": "Already have an account? Sign in",
@@ -91,6 +106,10 @@ export const en = {
   "docs.upload": "Upload",
   "docs.uploading": "Uploading…",
   "docs.maxSize": "Max 10 MB",
+  // In a sandbox. {file}, {total}, {size}, {max} and {used} are sizes such as "512 KB".
+  "docs.maxSizeSandbox": "Max {file} per file, {total} in total",
+  "docs.tooLarge": "This file is {size}. A temporary workspace takes files up to {max}.",
+  "docs.sandboxFull": "A temporary workspace holds up to {max} of files, and {used} is in use. Delete a document to make room.",
   "docs.colTitle": "Title",
   "docs.colSize": "Size",
   "docs.colChunks": "Chunks",
@@ -116,7 +135,9 @@ export const en = {
   "ask.thinking": "Thinking…",
   "ask.example1": "How long do customers have to request a refund?",
   "ask.example2": "How fast do orders ship?",
-  "ask.example3": "Who approves expenses over $1,000?",
+  // Each example must be answered by the demo documents (apps/api/src/lib/demoSeed.ts), also without an LLM:
+  // the extractive answer quotes the sentences sharing the most words with the question.
+  "ask.example3": "Who approves software subscriptions?",
   "ask.sources": "Sources",
   "ask.sourceMeta": "chunk {chunk} · score {score}",
   "ask.ms": "{ms} ms",
@@ -243,6 +264,7 @@ export const en = {
   "ask.answer": "Answer",
   "ask.tryExample": "Try an example",
   "ask.cited": "Cited",
+  "ask.noAnswer": "I couldn't find an answer to that in your documents. Try other words, or upload a document that covers it.",
   "ask.newChat": "New chat",
   "ask.copy": "Copy answer",
   "ask.copied": "Copied",
@@ -252,10 +274,16 @@ export const en = {
 
   // Temporary "try it with your own data" workspace (API: ALLOW_SANDBOX, web: NEXT_PUBLIC_SANDBOX).
   "sandbox.button": "Try it with your own data",
+  "sandbox.tenantName": "Sandbox workspace",
+  "sandbox.ownerName": "Sandbox owner",
   "sandbox.loading": "Creating your workspace…",
   "sandbox.loginTitle": "Want to try your own files?",
-  "sandbox.loginBody":
-    "Get a private temporary workspace with sample data. Upload documents and ask about them. It is deleted after 24 hours.",
+  "sandbox.loginBody": "Get a private temporary workspace with sample data. Upload documents and ask about them.",
+  // Follows sandbox.loginBody; {count} is the sandbox lifetime (API: SANDBOX_TTL_HOURS).
+  "sandbox.deletedAfter": {
+    one: "It is deleted after {count} hour.",
+    other: "It is deleted after {count} hours.",
+  },
   "sandbox.banner": {
     one: "Temporary workspace — deleted in {count} hour",
     other: "Temporary workspace — deleted in {count} hours",
@@ -264,4 +292,6 @@ export const en = {
   "sandbox.bannerHint": "Private to you: upload your own files and ask about them.",
   "sandbox.rateLimited": "Too many temporary workspaces were created from your network. Try again later.",
   "sandbox.busy": "There are too many temporary workspaces right now. Try again later.",
+  // Before "Sign out" or "Try the live demo" ends a sandbox: its token is the only way back in.
+  "sandbox.confirmEnd": "This deletes your temporary workspace and the files you uploaded. Continue?",
 } satisfies Record<string, string | PluralForms>;

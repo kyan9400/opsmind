@@ -28,6 +28,7 @@ jobs:
       DEMO_PASSWORD: opsmind-demo
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
       - name: Start the stack
         run: docker compose up -d --build --wait postgres redis api ai worker
       - name: Seed the demo workspace
@@ -42,14 +43,20 @@ jobs:
         env:
           SOURCECRAFT_REPO: ${{ vars.SOURCECRAFT_REPO }}
         # SourceCraft Sites serves a repository at https://<org>.sourcecraft.site/<repo>/, so the app lives under /<repo>.
+        # The origin goes into absolute metadata URLs (the link-preview image); empty keeps the app's default.
         run: |
           repo="${SOURCECRAFT_REPO#*/}"
           echo "base_path=/${repo:-opsmind}" >> "$GITHUB_OUTPUT"
+          org="${SOURCECRAFT_REPO%%/*}"
+          if [ -n "$SOURCECRAFT_REPO" ] && [ "$org" != "$SOURCECRAFT_REPO" ]; then
+            echo "origin=https://${org}.sourcecraft.site" >> "$GITHUB_OUTPUT"
+          fi
       - name: Build the static preview
         env:
           STATIC_PREVIEW: "1"
           NEXT_PUBLIC_PREVIEW: "1"
           PREVIEW_BASE_PATH: ${{ steps.site.outputs.base_path }}
+          NEXT_PUBLIC_SITE_URL: ${{ steps.site.outputs.origin }}
         run: npm run build -w apps/web
       - name: Install Chromium
         working-directory: e2e

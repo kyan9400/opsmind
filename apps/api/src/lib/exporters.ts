@@ -34,6 +34,10 @@ const periodLabel = (d: Dashboard) =>
 
 // ---------------------------------------------------------------- Excel
 
+// Per value: a format with a decimal point prints it even when no decimals follow ("391,245."), and most
+// KPI totals are whole numbers.
+const numFmt = (value: number | null) => (value === null || Number.isInteger(value) ? "#,##0" : "#,##0.0#");
+
 export async function buildXlsx(r: ReportData): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "OpsMind";
@@ -59,7 +63,8 @@ export async function buildXlsx(r: ReportData): Promise<Buffer> {
       k.previous,
       k.deltaPct === null ? null : k.deltaPct / 100,
     ]);
-    row.getCell(4).numFmt = row.getCell(5).numFmt = "#,##0.##";
+    row.getCell(4).numFmt = numFmt(k.current);
+    row.getCell(5).numFmt = numFmt(k.previous);
     row.getCell(6).numFmt = "+0.0%;-0.0%;0.0%";
     const good = isGoodChange(k);
     if (good !== null) row.getCell(6).font = { color: { argb: good ? "FF006300" : "FFD03B3B" } };
@@ -113,7 +118,8 @@ export async function buildXlsx(r: ReportData): Promise<Buffer> {
         a.bad ? "Needs attention" : "Positive",
       ]);
       row.getCell(1).numFmt = "yyyy-mm-dd";
-      row.getCell(3).numFmt = row.getCell(4).numFmt = "#,##0.##";
+      row.getCell(3).numFmt = numFmt(a.value);
+      row.getCell(4).numFmt = numFmt(a.expected);
       row.getCell(5).numFmt = "+0%;-0%;0%";
     }
   }

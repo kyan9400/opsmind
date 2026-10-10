@@ -1,0 +1,20 @@
+# The api and web images build from the repo root, so npm ci can use package-lock.json. Send only what
+# their Dockerfiles copy: no local installs or build output, and never a .env (on a server it holds the
+# production secrets). services/ai builds from its own folder and has its own .dockerignore.
+*
+!package.json
+!package-lock.json
+!e2e/package.json
+!apps/api
+!apps/web
+**/node_modules
+**/.next
+**/dist
+**/*.tsbuildinfo
+**/npm-debug.log*
+**/.env*
+# Written by the api build (scripts/copy-fonts.mjs).
+apps/api/fonts
+# The static interactive preview (recorded fixtures and export) is not part of the server image.
+apps/web/preview-data
+apps/web/out

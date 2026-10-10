@@ -82,6 +82,7 @@ services:
     restart: unless-stopped
     environment:
       AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?set AI_SERVICE_TOKEN in .env}
+      API_DOCS: "false" # the base file turns them on for local development
     logging: *logging
     deploy:
       resources:
@@ -94,6 +95,7 @@ services:
       args:
         # Baked into the client bundle at build time, so changing DOMAIN needs `up -d --build`.
         NEXT_PUBLIC_API_URL: https://${DOMAIN:?set DOMAIN in .env}
+        NEXT_PUBLIC_SITE_URL: https://${DOMAIN:?set DOMAIN in .env}
     logging: *logging
     deploy:
       resources:

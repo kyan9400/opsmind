@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
@@ -16,8 +16,9 @@ import {
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Logo } from "@/components/Logo";
 import { SandboxBanner } from "@/components/SandboxBanner";
-import { api, clearToken, type Me } from "@/lib/api";
+import { api, clearToken, getToken, type Me } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
+import { endSandbox } from "@/lib/sandbox";
 
 const links = [
   { href: "/dashboard", label: "nav.overview", testId: "nav-overview", Icon: IconOverview },
@@ -26,6 +27,13 @@ const links = [
   { href: "/dashboard/ask", label: "nav.ask", testId: "nav-ask", Icon: IconSparkles },
 ] as const;
 
+/** A sandbox's workspace and owner names come from the API in English; show them in the UI language. */
+function accountNames(me: Me, t: ReturnType<typeof useT>) {
+  return me.expiresAt
+    ? { tenant: t("sandbox.tenantName"), user: t("sandbox.ownerName") }
+    : { tenant: me.tenantName, user: me.name };
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const t = useT();
   // The static preview is exported with trailingSlash, so the browser reports "/dashboard/analytics/".
@@ -33,6 +41,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
   const current = links.find((l) => l.href === pathname);
 
   // Only for the workspace/user block; each page still does its own auth check and 401 redirect.
@@ -45,8 +56,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
+    // The page behind an open drawer is inert, so the drawer must not stay open once the window is wide
+    // enough to show the sidebar as a column.
+    const wide = window.matchMedia("(min-width: 64rem)");
+    const onWide = () => wide.matches && setMenuOpen(false);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    wide.addEventListener("change", onWide);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      wide.removeEventListener("change", onWide);
+    };
+  }, [menuOpen]);
+
+  // Opening moves focus into the drawer; closing brings it back to the menu button, unless the user has
+  // already put it somewhere else outside the drawer.
+  useEffect(() => {
+    if (menuOpen) {
+      sidebarRef.current?.querySelector<HTMLElement>("nav a")?.focus();
+    } else if (wasOpen.current) {
+      const active = document.activeElement;
+      if (!active || active === document.body || sidebarRef.current?.contains(active)) menuButtonRef.current?.focus();
+    }
+    wasOpen.current = menuOpen;
   }, [menuOpen]);
 
   return (
@@ -62,13 +93,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* One sidebar for every width: a sticky column from lg up, an off-canvas drawer below (start edge, so
-          it slides in from the right in Arabic). A closed drawer is `invisible`, which keeps it out of the tab order. */}
+          it slides in from the right in Arabic). A closed drawer is `invisible`, which keeps it out of the tab order.
+          Only closing delays visibility until the slide ends: on opening it must flip at once, or the drawer is
+          still hidden, and cannot take focus, when the effect above moves focus into it. */}
       <aside
+        ref={sidebarRef}
         id="app-sidebar"
-        className={`z-50 w-64 shrink-0 border-e border-line bg-surface transition-[translate,visibility] duration-200 max-lg:fixed max-lg:inset-y-0 max-lg:start-0 max-lg:shadow-overlay ${
+        className={`z-50 w-64 shrink-0 border-e border-line bg-surface duration-200 max-lg:fixed max-lg:inset-y-0 max-lg:start-0 max-lg:shadow-overlay ${
           menuOpen
-            ? "max-lg:visible max-lg:translate-x-0"
-            : "max-lg:invisible max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"
+            ? "transition-[translate] max-lg:visible max-lg:translate-x-0"
+            : "transition-[translate,visibility] max-lg:invisible max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"
         }`}
       >
         {/* The column spans the page; only its contents stick, so the border and surface never end mid-page. */}
@@ -113,19 +147,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="shrink-0 border-t border-line p-3">
             {me && (
               <div className="mb-2 rounded-control bg-muted p-3" data-testid="sidebar-account">
-                <p className="eyebrow">{t("nav.workspace")}</p>
-                <p className="mt-0.5 truncate text-sm font-semibold text-fg">{me.tenantName}</p>
+                {/* fg-muted, not the eyebrow's fg-subtle: on bg-muted that is only 4.3:1. */}
+                <p className="eyebrow text-fg-muted">{t("nav.workspace")}</p>
+                <p className="mt-0.5 truncate text-sm font-semibold text-fg">{accountNames(me, t).tenant}</p>
                 <div className="mt-3 flex items-center gap-2.5">
-                  <Avatar name={me.name} />
+                  <Avatar name={accountNames(me, t).user} />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-fg">{me.name}</p>
-                    <p className="truncate text-xs text-fg-subtle">{t(`role.${me.role}`)}</p>
+                    <p className="truncate text-sm font-medium text-fg">{accountNames(me, t).user}</p>
+                    <p className="truncate text-xs text-fg-muted">{t(`role.${me.role}`)}</p>
                   </div>
                 </div>
               </div>
             )}
             <button
               onClick={() => {
+                // A sandbox's token is its only key, so signing out ends it: ask first, then delete it now
+                // rather than leave the visitor's files to the expiry.
+                if (me?.expiresAt) {
+                  if (!confirm(t("sandbox.confirmEnd"))) return;
+                  endSandbox(getToken());
+                }
                 clearToken();
                 router.push("/login");
               }}
@@ -139,9 +180,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* While the drawer is open, the page under the overlay is out of reach for Tab and screen readers. */}
+      <div className="flex min-w-0 flex-1 flex-col" inert={menuOpen}>
         <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-canvas/85 px-4 backdrop-blur-md sm:px-6 lg:px-8">
           <button
+            ref={menuButtonRef}
             type="button"
             onClick={() => setMenuOpen(true)}
             aria-label={t("nav.openMenu")}
@@ -154,7 +197,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="flex min-w-0 items-center gap-2 text-sm">
             {me && (
               <>
-                <span className="hidden truncate text-fg-subtle sm:inline">{me.tenantName}</span>
+                <span className="hidden truncate text-fg-subtle sm:inline">{accountNames(me, t).tenant}</span>
                 <span aria-hidden className="hidden text-line-strong sm:inline">
                   /
                 </span>

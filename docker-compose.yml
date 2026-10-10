@@ -2,6 +2,12 @@ x-backend-env: &backend-env
   DATABASE_URL: postgres://${POSTGRES_USER:-opsmind}:${POSTGRES_PASSWORD:-opsmind_dev_password}@postgres:5432/${POSTGRES_DB:-opsmind}
   AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-dev-internal-token-change-me}
 
+# The api and web images build from the repo root, where package-lock.json is, so npm ci installs the
+# exact dependency tree CI tests.
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -25,16 +31,20 @@ services:
       retries: 10
 
   api:
-    build: ./apps/api
+    build: *api-build
     environment:
       <<: *backend-env
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
       CORS_ORIGIN: http://localhost:3000
       AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-20} # login/register attempts per IP per 15 min; 0 disables (browser tests)
       AI_RATE_LIMIT: ${AI_RATE_LIMIT:-20} # ask/insights/export requests per user and IP per minute; 0 disables (load tests)
+      # Self-service sign-up; false closes it (and hides the web's sign-up links, see the web build args).
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
       # Temporary "try it with your own data" workspaces; off unless ALLOW_SANDBOX=true (also shows the web button).
       ALLOW_SANDBOX: ${ALLOW_SANDBOX:-false}
       SANDBOX_RATE_LIMIT: ${SANDBOX_RATE_LIMIT:-3} # sandbox creations per IP per hour; 0 disables (browser tests)
+      SANDBOX_WRITE_RATE_LIMIT: ${SANDBOX_WRITE_RATE_LIMIT:-10} # uploads/imports per sandbox per hour; 0 disables
+      SANDBOX_GLOBAL_WRITE_RATE_LIMIT: ${SANDBOX_GLOBAL_WRITE_RATE_LIMIT:-30} # document uploads/re-indexes of all sandboxes together; 0 disables
       REDIS_URL: redis://redis:6379
       AI_SERVICE_URL: http://ai:8000
     ports: ["4000:4000"]
@@ -43,7 +53,7 @@ services:
       redis: { condition: service_healthy }
 
   worker:
-    build: ./apps/api
+    build: *api-build
     command: ["node", "dist/worker.js"]
     environment:
       <<: *backend-env
@@ -71,16 +81,38 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text} # 768-d; a multilingual model helps cross-language questions
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1}
+      # LLM_PROVIDER=openai-compatible: any /chat/completions host (Groq, OpenRouter, vLLM...). Empty keeps
+      # the service defaults (30 s timeout, 1024 tokens, no extra body, 300 LLM calls a day for the whole
+      # deployment; past that, answers and summaries fall back to the offline ones).
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_EXTRA_BODY: ${LLM_EXTRA_BODY:-}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
+      LLM_DAILY_MAX: ${LLM_DAILY_MAX:-}
+      # Ingest limits; empty keeps the service defaults (200,000 characters, 300 chunks, 50 PDF pages,
+      # 10 MB of PDF page content, 20 s to read a PDF).
+      INGEST_MAX_CHARS: ${INGEST_MAX_CHARS:-}
+      INGEST_MAX_CHUNKS: ${INGEST_MAX_CHUNKS:-}
+      INGEST_MAX_PDF_PAGES: ${INGEST_MAX_PDF_PAGES:-}
+      INGEST_MAX_PDF_CONTENT_MB: ${INGEST_MAX_PDF_CONTENT_MB:-}
+      INGEST_MAX_PDF_SECONDS: ${INGEST_MAX_PDF_SECONDS:-}
+      # Interactive API docs at http://localhost:8000/docs, for local development only (off by default,
+      # and docker-compose.prod.yml turns them off again).
+      API_DOCS: "true"
     ports: ["8000:8000"]
     depends_on:
       postgres: { condition: service_healthy }
 
   web:
     build:
-      context: ./apps/web
+      context: .
+      dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: http://localhost:4000
         NEXT_PUBLIC_SANDBOX: ${ALLOW_SANDBOX:-false} # the button follows the API switch above
+        NEXT_PUBLIC_REGISTRATION: ${ALLOW_REGISTRATION:-true} # and so do the sign-up links
     ports: ["3000:3000"]
     depends_on: [api]
 

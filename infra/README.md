@@ -1,6 +1,6 @@
 # Deploying OpsMind
 
-> **Optional.** OpsMind is not hosted permanently; to try it, use the one-click [Codespaces demo](../.devcontainer/README.md). Everything below is ready for anyone who wants their own server. Until the deploy secrets are set, the deploy workflow skips itself with a notice.
+> **Optional.** The live demo runs on the serverless profile ([deploy/vercel](../deploy/vercel/README.md)). This guide is the self-hosted path: your own server with the same images. CI validates it on every run (Terraform fmt/validate, the production compose file, the Caddyfile), but no instance of it is running now. Until the deploy secrets are set, the deploy workflow skips itself with a notice.
 
 One small VM runs the whole stack with Docker Compose. Caddy is the only public entrypoint and gets a free HTTPS certificate automatically.
 
@@ -75,7 +75,7 @@ cp terraform.tfvars.example terraform.tfvars
 
 Fill in at least `cloud_id`, `folder_id`, `ssh_public_key` (the content of `~/.ssh/id_ed25519.pub`; create one with `ssh-keygen -t ed25519` if needed) and `admin_cidr` (your public IP plus `/32`; find it with `curl https://ifconfig.me`).
 
-Database password, JWT secret and the internal AI token are **generated for you**. The app starts with the offline AI providers; add `openai_api_key` / `anthropic_api_key` and switch `embed_provider` / `llm_provider` when you want real models.
+Database password, JWT secret and the internal AI token are **generated for you**. The app starts with the offline AI providers; add `openai_api_key` / `anthropic_api_key` and switch `embed_provider` / `llm_provider` when you want real models. With `llm_provider = "openai-compatible"` the ai container reads `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` from the VM's `.env` (see [Providers](../README.md#providers)).
 
 ### 5. Create everything
 

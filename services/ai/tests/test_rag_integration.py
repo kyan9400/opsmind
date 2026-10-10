@@ -4,11 +4,13 @@ Requires the schema from apps/api/migrations. Enable with INTEGRATION=1.
 """
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
+import app.llm as llm
+from app.config import Settings, settings
 from app.db import get_pool
 from app.main import app
 
@@ -75,3 +77,42 @@ def test_empty_document_is_marked_failed():
     with get_pool().connection() as conn:
         status, error = conn.execute("SELECT status, error FROM documents WHERE id = %s", (doc,)).fetchone()
     assert status == "failed" and "no extractable text" in error
+
+
+def test_document_over_the_text_limit_is_marked_failed():
+    client = TestClient(app)
+    with get_pool().connection() as conn:
+        _, doc = make_tenant_with_document(conn, "Hooli", "word " * 50_000)  # 250,000 characters
+    res = client.post("/v1/ingest", json={"document_id": doc}, headers=HEADERS)
+    assert res.status_code == 422 and res.json()["detail"].startswith("document too long")
+    with get_pool().connection() as conn:
+        status, error, chunks = conn.execute(
+            "SELECT d.status, d.error, (SELECT count(*) FROM chunks c WHERE c.document_id = d.id) "
+            "FROM documents d WHERE d.id = %s",
+            (doc,),
+        ).fetchone()
+    assert status == "failed" and error.startswith("document too long") and chunks == 0
+
+
+def test_llm_daily_cap_is_counted_atomically_in_the_database(monkeypatch):
+    monkeypatch.setattr(llm, "get_pool", get_pool)  # the llm_usage table, not the tests' in-memory one
+    monkeypatch.setenv("LLM_DAILY_MAX", "5")
+    monkeypatch.setattr(llm, "settings", Settings())
+    today = "(now() AT TIME ZONE 'UTC')::date"
+    with get_pool().connection() as conn:
+        conn.execute(f"DELETE FROM llm_usage WHERE day = {today}")
+
+    def take() -> bool:
+        try:
+            llm.count_llm_call()
+            return True
+        except llm.DailyLimitReached:
+            return False
+
+    # Concurrent instances: exactly the cap gets through, never one more.
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        taken = list(pool.map(lambda _: take(), range(12)))
+    assert taken.count(True) == 5
+    with get_pool().connection() as conn:
+        assert conn.execute(f"SELECT calls FROM llm_usage WHERE day = {today}").fetchone() == (5,)
+        conn.execute(f"DELETE FROM llm_usage WHERE day = {today}")

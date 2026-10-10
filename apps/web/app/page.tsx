@@ -16,6 +16,7 @@ import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Logo } from "@/components/Logo";
 import { ProductMockup } from "@/components/ProductMockup";
 import { SandboxButton } from "@/components/SandboxButton";
+import { registrationEnabled } from "@/lib/flags";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW, REPO_URL } from "@/lib/preview";
 
@@ -61,8 +62,8 @@ export default function Home() {
       {t("landing.signIn")}
     </Link>
   );
-  // The static preview has nothing to create a workspace in.
-  const register = !PREVIEW && (
+  // Not in the static preview, nor where the API has sign-up closed (the live demo).
+  const register = registrationEnabled && (
     <Link
       href="/login?mode=register"
       data-testid="landing-register"

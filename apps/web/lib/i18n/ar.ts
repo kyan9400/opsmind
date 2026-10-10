@@ -1,11 +1,15 @@
 import type { Dict } from "./types";
 
 export const ar: Dict = {
-  "meta.description": "منصة للعمليات والمعرفة المؤسسية مدعومة بالذكاء الاصطناعي",
+  "meta.title": "OpsMind — منصة للعمليات والمعرفة المؤسسية مدعومة بالذكاء الاصطناعي",
+  "meta.description":
+    "لوحات مؤشرات أداء تكشف التغيّرات غير المعتادة، وإجابات بالذكاء الاصطناعي من مستنداتك موثّقة بالمصادر — بالعربية والإنجليزية والروسية.",
 
   "lang.label": "اللغة",
   "common.loading": "جارٍ التحميل…",
   "common.partial": "(فترة جزئية)",
+  "common.requestFailed": "تعذّر تنفيذ الطلب (HTTP {status}). يُرجى المحاولة مرة أخرى.",
+  "common.tooLarge": "الملف كبير جدًا ولا يمكن رفعه.",
 
   "demo.button": "جرّب العرض التجريبي",
   "demo.loading": "جارٍ تسجيل الدخول…",
@@ -49,6 +53,11 @@ export const ar: Dict = {
   "login.email": "البريد الإلكتروني",
   "login.password": "كلمة المرور (8 أحرف على الأقل)",
   "login.submitSignIn": "تسجيل الدخول",
+  "login.metaTitle": "تسجيل الدخول أو إنشاء حساب",
+  "login.metaTitleSignIn": "تسجيل الدخول",
+  "login.registrationClosed": "التسجيل مغلق في هذا الموقع.",
+  "login.sessionExpired": "انتهت صلاحية الجلسة. يُرجى تسجيل الدخول مرة أخرى.",
+  "login.sandboxExpired": "انتهت صلاحية مساحة العمل المؤقتة، ولم تعد ملفاتها متاحة.",
   "login.submitRegister": "إنشاء مساحة عمل",
   "login.toRegister": "مستخدم جديد؟ أنشئ مساحة عمل",
   "login.toSignIn": "لديك حساب بالفعل؟ سجّل الدخول",
@@ -83,6 +92,9 @@ export const ar: Dict = {
   "docs.upload": "رفع",
   "docs.uploading": "جارٍ الرفع…",
   "docs.maxSize": "الحد الأقصى 10 ميغابايت",
+  "docs.maxSizeSandbox": "الحد الأقصى للملف {file}، وللمساحة كلها {total}",
+  "docs.tooLarge": "حجم هذا الملف {size}، ومساحة العمل المؤقتة تقبل ملفات حتى {max}.",
+  "docs.sandboxFull": "تتسع مساحة العمل المؤقتة لملفات حتى {max}، والمستخدَم منها {used}. احذف مستندًا لإفساح المجال.",
   "docs.colTitle": "العنوان",
   "docs.colSize": "الحجم",
   "docs.colChunks": "المقاطع",
@@ -108,7 +120,7 @@ export const ar: Dict = {
   "ask.thinking": "جارٍ البحث عن إجابة…",
   "ask.example1": "كم يومًا لدى العملاء لطلب استرداد المبلغ؟",
   "ask.example2": "ما مدة شحن الطلبات؟",
-  "ask.example3": "من يعتمد المصروفات التي تتجاوز 1,000 دولار؟",
+  "ask.example3": "من يعتمد اشتراكات البرمجيات؟",
   "ask.sources": "المصادر",
   "ask.sourceMeta": "المقطع {chunk} · درجة التطابق {score}",
   "ask.ms": "{ms} مللي ثانية",
@@ -260,6 +272,7 @@ export const ar: Dict = {
   "ask.you": "أنت",
   "ask.answer": "الإجابة",
   "ask.tryExample": "جرّب مثالًا",
+  "ask.noAnswer": "لم أجد إجابة عن هذا السؤال في مستنداتك. جرّب صياغة أخرى أو ارفع مستندًا يتناول هذا الموضوع.",
   "ask.cited": "مُستشهَد به",
   "ask.newChat": "محادثة جديدة",
   "ask.copy": "نسخ الإجابة",
@@ -268,11 +281,19 @@ export const ar: Dict = {
   "ask.searchedFor": "تم البحث عن: {query}",
   "ask.threadLabel": "المحادثة",
 
+  "sandbox.tenantName": "مساحة عمل مؤقتة",
+  "sandbox.ownerName": "المالك",
   "sandbox.button": "جرّبه ببياناتك الخاصة",
   "sandbox.loading": "جارٍ إنشاء مساحة العمل…",
   "sandbox.loginTitle": "هل تريد التجربة على ملفاتك الخاصة؟",
-  "sandbox.loginBody":
-    "احصل على مساحة عمل مؤقتة وخاصة بك تتضمن بيانات تجريبية. ارفع مستنداتك واطرح أسئلة عنها. تُحذف بعد 24 ساعة.",
+  "sandbox.loginBody": "احصل على مساحة عمل مؤقتة وخاصة بك تتضمن بيانات تجريبية. ارفع مستنداتك واطرح أسئلة عنها.",
+  "sandbox.deletedAfter": {
+    one: "تُحذف بعد ساعة واحدة.",
+    two: "تُحذف بعد ساعتين.",
+    few: "تُحذف بعد {count} ساعات.",
+    many: "تُحذف بعد {count} ساعة.",
+    other: "تُحذف بعد {count} ساعة.",
+  },
   "sandbox.banner": {
     zero: "مساحة عمل مؤقتة — تُحذف خلال أقل من ساعة",
     one: "مساحة عمل مؤقتة — تُحذف خلال ساعة واحدة",
@@ -285,4 +306,5 @@ export const ar: Dict = {
   "sandbox.bannerHint": "خاصة بك وحدك: ارفع ملفاتك واطرح أسئلة عنها.",
   "sandbox.rateLimited": "أُنشئ عدد كبير جدًا من مساحات العمل المؤقتة من شبكتك. حاول مرة أخرى لاحقًا.",
   "sandbox.busy": "يوجد الآن عدد كبير جدًا من مساحات العمل المؤقتة. حاول مرة أخرى لاحقًا.",
+  "sandbox.confirmEnd": "ستُحذف مساحة العمل المؤقتة والملفات التي رفعتها. هل تريد المتابعة؟",
 };

@@ -11,7 +11,9 @@ from datetime import date
 from typing import Literal
 
 import numpy as np
+import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from psycopg_pool import ConnectionPool
 from pydantic import BaseModel, Field, model_validator
 
 from .anomaly import detect
@@ -19,14 +21,21 @@ from .chunking import chunk_text
 from .config import settings
 from .db import get_pool
 from .embeddings import embed_batched, get_embedder
-from .extract import extract_text
+from .extract import DocumentOverLimit, extract_text
 from .insights import KpiDelta, NamedAnomaly, summarize
-from .llm import Turn, answer_with_fallback, build_retrieval_query, cited_numbers
+from .llm import NO_ANSWER, Turn, answer_with_fallback, build_retrieval_query, cited_numbers
 from .retrieval import hybrid_search
 from .telemetry import ANOMALIES, EMBED_DURATION, metrics_middleware, metrics_response, setup_tracing, timed
 
 log = logging.getLogger("opsmind.ai")
-app = FastAPI(title="OpsMind AI", version="0.4.0")
+app = FastAPI(
+    title="OpsMind AI",
+    version="0.4.0",
+    # API_DOCS=true (docker-compose sets it); without it these routes do not exist (404).
+    docs_url="/docs" if settings.api_docs else None,
+    redoc_url="/redoc" if settings.api_docs else None,
+    openapi_url="/openapi.json" if settings.api_docs else None,
+)
 app.middleware("http")(metrics_middleware)
 setup_tracing(app)
 
@@ -55,6 +64,17 @@ class IngestRequest(BaseModel):
     document_id: uuid.UUID
 
 
+def _failed(pool: ConnectionPool, document_id: uuid.UUID, error: str) -> HTTPException:
+    """Record on the document why it could not be indexed. The 422 tells the API not to retry."""
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE documents SET status = 'failed', error = %s, updated_at = now() WHERE id = %s",
+            (error[:500], document_id),
+        )
+    log.warning("ingest failed for %s: %s", document_id, error)
+    return HTTPException(status_code=422, detail=error[:500])
+
+
 @app.post("/v1/ingest", dependencies=[Depends(internal_auth)])
 def ingest(req: IngestRequest) -> dict:
     started = time.perf_counter()
@@ -70,37 +90,50 @@ def ingest(req: IngestRequest) -> dict:
     tenant_id, mime_type, content = row
 
     try:
-        chunks = chunk_text(extract_text(bytes(content), mime_type))
+        text = extract_text(
+            bytes(content),
+            mime_type,
+            max_chars=settings.ingest_max_chars,
+            max_pdf_pages=settings.ingest_max_pdf_pages,
+            max_pdf_content_bytes=settings.ingest_max_pdf_content_mb * 1_000_000,
+            max_pdf_seconds=settings.ingest_max_pdf_seconds,
+        )
+        chunks = chunk_text(text)
         if not chunks:
             raise ValueError("no extractable text in document")
+        # Chunks, not characters, are what the database stores; text that breaks into unusually short
+        # chunks would otherwise get past the character limit with several times the rows.
+        if 0 < settings.ingest_max_chunks < len(chunks):
+            raise DocumentOverLimit(
+                f"document too long: {len(chunks)} chunks (limit {settings.ingest_max_chunks})"
+            )
         with timed(EMBED_DURATION, provider=settings.embed_provider):
             vectors = embed_batched(get_embedder(), [c.text for c in chunks])
     except Exception as exc:  # bad file or provider failure: record it on the document
-        with pool.connection() as conn:
-            conn.execute(
-                "UPDATE documents SET status = 'failed', error = %s, updated_at = now() WHERE id = %s",
-                (str(exc)[:500], req.document_id),
-            )
-        log.warning("ingest failed for %s: %s", req.document_id, exc)
-        raise HTTPException(status_code=422, detail=str(exc)[:500]) from exc
+        raise _failed(pool, req.document_id, str(exc)) from exc
 
     # Replace chunks atomically so re-indexing never leaves a half-indexed document.
-    with pool.connection() as conn, conn.transaction():
-        conn.execute("DELETE FROM chunks WHERE document_id = %s", (req.document_id,))
-        with conn.cursor() as cur:
-            cur.executemany(
-                """INSERT INTO chunks (document_id, tenant_id, chunk_index, content, embedding)
-                   VALUES (%s, %s, %s, %s, %s)""",
-                [
-                    (req.document_id, tenant_id, c.index, c.text, np.asarray(v, dtype=np.float32))
-                    for c, v in zip(chunks, vectors)
-                ],
+    try:
+        with pool.connection() as conn, conn.transaction():
+            conn.execute("DELETE FROM chunks WHERE document_id = %s", (req.document_id,))
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """INSERT INTO chunks (document_id, tenant_id, chunk_index, content, embedding)
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    [
+                        (req.document_id, tenant_id, c.index, c.text, np.asarray(v, dtype=np.float32))
+                        for c, v in zip(chunks, vectors)
+                    ],
+                )
+            conn.execute(
+                """UPDATE documents SET status = 'ready', chunk_count = %s, updated_at = now()
+                    WHERE id = %s""",
+                (len(chunks), req.document_id),
             )
-        conn.execute(
-            """UPDATE documents SET status = 'ready', chunk_count = %s, updated_at = now()
-                WHERE id = %s""",
-            (len(chunks), req.document_id),
-        )
+    except (ValueError, psycopg.DataError) as exc:
+        # Text the database will not take (psycopg raises UnicodeEncodeError before sending it) fails
+        # the same way on every retry. Anything else, such as a lost connection, stays a 500 the API retries.
+        raise _failed(pool, req.document_id, f"could not store the document's text: {exc}") from exc
 
     return {
         "document_id": str(req.document_id),
@@ -134,6 +167,10 @@ class Citation(BaseModel):
 
 class AskResponse(BaseModel):
     answer: str
+    # False when the sources hold no answer: the no-answer reply, or one that cites none of them. The
+    # no-answer text is English (a model's reply is in the question's language), so clients that show
+    # another language use this flag, not the text.
+    found: bool
     citations: list[Citation]
     provider: str
     retrieval_query: str
@@ -155,6 +192,7 @@ def ask(req: AskRequest) -> AskResponse:
     used = cited_numbers(answer, len(hits))
     return AskResponse(
         answer=answer,
+        found=answer != NO_ANSWER and bool(used),
         citations=[
             Citation(
                 n=i,

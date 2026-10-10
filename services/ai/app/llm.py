@@ -7,11 +7,13 @@ Every provider receives the same numbered sources and must cite them as [n].
 import logging
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import httpx
 
 from .config import settings
+from .db import get_pool
 from .embeddings import tokenize
 from .retrieval import STOPWORDS, Hit
 from .telemetry import LLM_DURATION, timed
@@ -66,17 +68,48 @@ def _openai_compatible(system: str, messages: list[Message], timeout: Timeout | 
             "model": settings.llm_model,
             "temperature": 0,
             # Bounds latency and free-tier token spend; answers are a few cited sentences.
+            # (max_tokens, not max_completion_tokens: every compatible host still accepts it.)
             "max_tokens": settings.llm_max_tokens,
+            **settings.llm_extra_body,
             "messages": [{"role": "system", "content": system}, *messages],
         },
         timeout=settings.llm_timeout_s if timeout is None else timeout,
     )
     res.raise_for_status()
-    content = res.json()["choices"][0]["message"]["content"]
-    # Some hosts return 200 with null/empty content when they cut a reply short; treat it as a failure.
-    if not content or not content.strip():
-        raise ValueError("empty completion")
+    choice = res.json()["choices"][0]
+    # Reasoning models return their thinking in a separate field (reasoning / reasoning_content),
+    # which is never read, or inline in content, which strip_reasoning removes.
+    content = strip_reasoning(choice["message"].get("content") or "")
+    finish = choice.get("finish_reason")
+    # Hosts return 200 with null/empty content when thinking used up the whole token budget.
+    if not content:
+        raise ValueError(f"empty completion (finish_reason={finish})")
+    if finish == "length":
+        # Cut off at max_tokens. Without a citation it cannot be checked against the sources, so the
+        # caller falls back (extractive answer, template summary); with one, say that it stops short.
+        log.warning("completion hit max_tokens=%s", settings.llm_max_tokens)
+        if not re.search(r"\[\d+\]", content):
+            raise ValueError("completion cut off at max_tokens before citing a source")
+        return f"{content} …"
     return content
+
+
+# Inline thinking: <think>/<thinking> blocks (Qwen, DeepSeek and most open models) and Gemma 4's
+# "<|channel>thought ... <channel|>". An unclosed block means the reply was cut off mid-thought.
+_THINKING = re.compile(
+    r"<(think|thinking)>.*?(?:</\1>|\Z)|<\|channel>thought.*?(?:<channel\|>|(?=<\|channel>)|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+# Some chat templates open the block in the prompt, so the reply holds only the closing tag.
+_THINKING_CLOSE = re.compile(r"^.*?(?:</think>|</thinking>|<channel\|>)", re.DOTALL | re.IGNORECASE)
+_CHANNEL_MARKER = re.compile(r"<\|channel>\w*|<channel\|>")
+
+
+def strip_reasoning(text: str) -> str:
+    """The reply without any thinking a model wrote inline, so only the answer reaches the user."""
+    text = _THINKING.sub("", text)
+    text = _THINKING_CLOSE.sub("", text, count=1)
+    return _CHANNEL_MARKER.sub("", text).strip()
 
 
 def _anthropic(system: str, messages: list[Message], timeout: Timeout = 60) -> str:
@@ -122,6 +155,29 @@ def has_llm() -> bool:
     return settings.llm_provider in PROVIDERS
 
 
+class DailyLimitReached(RuntimeError):
+    """Today's LLM_DAILY_MAX calls are used up. Callers fall back as they do when a provider fails."""
+
+
+def count_llm_call() -> None:
+    """Count one call against today's (UTC) LLM_DAILY_MAX, or raise DailyLimitReached.
+
+    A single statement, so two instances cannot both take the last call. Attempts count, failed ones
+    too: a provider that keeps failing because its own quota is spent stops being called as well.
+    """
+    if settings.llm_daily_max <= 0:
+        return
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """INSERT INTO llm_usage (day, calls) VALUES ((now() AT TIME ZONE 'UTC')::date, 1)
+               ON CONFLICT (day) DO UPDATE SET calls = llm_usage.calls + 1 WHERE llm_usage.calls < %s
+               RETURNING calls""",
+            (settings.llm_daily_max,),
+        ).fetchone()
+    if row is None:
+        raise DailyLimitReached(f"LLM_DAILY_MAX reached: {settings.llm_daily_max} LLM calls today (UTC)")
+
+
 def chat(
     system: str,
     user: str,
@@ -132,16 +188,23 @@ def chat(
     """Completion with the configured provider (its default timeout unless given).
 
     Prior turns go in as real user/assistant messages, so the model resolves follow-ups itself.
+    Raises DailyLimitReached once today's LLM_DAILY_MAX calls are used up.
     """
     if settings.llm_provider not in PROVIDERS:
         raise ValueError(f"LLM_PROVIDER {settings.llm_provider!r} has no chat model")
     fn = PROVIDERS[settings.llm_provider]
+    count_llm_call()
     messages: list[Message] = []
     for turn in history:
         messages += [{"role": "user", "content": turn.question}, {"role": "assistant", "content": turn.answer}]
     messages.append({"role": "user", "content": user})
     with timed(LLM_DURATION, provider=settings.llm_provider, kind=kind):
-        return fn(system, messages) if timeout is None else fn(system, messages, timeout)
+        reply = fn(system, messages) if timeout is None else fn(system, messages, timeout)
+    # Local reasoning models (Ollama's qwen3, deepseek-r1) also write <think> blocks into the reply.
+    text = strip_reasoning(reply or "")
+    if not text:
+        raise ValueError("empty completion")
+    return text
 
 
 # ---------------------------------------------------------------- follow-ups
@@ -193,40 +256,110 @@ def cited_numbers(answer: str, n_sources: int) -> set[int]:
     return {int(m) for m in re.findall(r"\[(\d+)\]", answer) if 1 <= int(m) <= n_sources}
 
 
+# What is left of a question that names no topic: "how long?", "what else?", "как долго?", "وكم؟",
+# "why is that?", "what about it?", "а что с этим?", "لماذا؟". Kept out of STOPWORDS, which also
+# shapes the full-text query.
+QUESTION_ONLY = frozenset(
+    """long often soon else more anything tell then that about too any some other again please just
+    only all not no did get us than very really
+    долго часто скоро ещё еще подробнее этом этим эту тот та те то с со про при тоже так тогда зачем
+    расскажи расскажите объясни объясните бы же вот да нет всё все только уже если чем чтобы нам вам
+    كم لماذا لم لما أيضا ايضا كذلك هناك حول بشأن بخصوص أي أكثر فقط نعم اشرح أخبرني""".split()
+)
+NON_TOPIC = STOPWORDS | BACK_REFERENCES | FOLLOW_UP_OPENERS | QUESTION_ONLY
+
+
+def topic_words(text: str) -> set[str]:
+    """The words that say what a question is about: no stopwords, back-references, connectors or
+    question-only words.
+
+    Arabic joins "و" (and) and "ف" (so) to the next word, so "وماذا", "ومتى" and "فماذا" count as the
+    stopwords they hold.
+    """
+    return {w for w in tokenize(text) if w not in NON_TOPIC and not (w[0] in "وف" and w[1:] in NON_TOPIC)}
+
+
+@dataclass
+class _Sentence:
+    score: float
+    source: int  # the [n] it is cited as
+    order: int  # position across all sources, so equal scores keep reading order
+    text: str
+    words: str  # " w1 w2 ... ": one sentence's words inside another's means the same text
+
+
 def extractive_answer(
     question: str, hits: list[Hit], max_sentences: int = 3, min_relative: float = 0.5
 ) -> str:
-    # Content words only: function words ("how", "many", "for") would otherwise pull in
+    # Topic words only: function words ("how", "many", "for") would otherwise pull in
     # unrelated sentences that merely share them.
-    q = set(tokenize(question)) - STOPWORDS
-    scored: list[tuple[float, int, str]] = []
+    q = topic_words(question)
+    scored: list[_Sentence] = []
     for i, h in enumerate(hits, 1):
         title = set(tokenize(h.title))
         for sentence in re.split(r"(?<=[.!?。])\s+|\n+", h.content):
+            sentence = sentence.strip()
             words = tokenize(sentence)
-            # Headings are not answers: skip the document title and other very short fragments.
-            if len(words) < 4 or set(words) <= title:
+            # Headings are not answers: skip markdown headings, the document title and other very short
+            # fragments.
+            if sentence.startswith("#") or len(words) < 4 or set(words) <= title:
                 continue
-            overlap = len(q.intersection(words))
-            if overlap:
-                scored.append((overlap / (len(words) ** 0.5), i, sentence.strip()))
+            shared = q.intersection(words)
+            # Sharing only numbers is a coincidence: "$1,000" is "1" and "000", which match "Severity 1"
+            # and "5,000 RUB" in a question the sources do not answer.
+            if any(not w.isdigit() for w in shared):
+                score = len(shared) / len(words) ** 0.5
+                scored.append(_Sentence(score, i, len(scored), sentence, f" {' '.join(words)} "))
     if not scored:
         return NO_ANSWER
-    ranked = sorted(scored, key=lambda s: -s[0])
+    ranked = sorted(_distinct(scored), key=lambda s: (-s.score, s.order))
     # Fewer, relevant sentences beat padding the answer up to max_sentences.
-    cutoff = ranked[0][0] * min_relative
-    best = [s for s in ranked[:max_sentences] if s[0] >= cutoff]
-    return " ".join(f"{sentence} [{i}]" for _, i, sentence in best)
+    cutoff = ranked[0].score * min_relative
+    best = [s for s in ranked[:max_sentences] if s.score >= cutoff]
+    return " ".join(f"{s.text} [{s.source}]" for s in best)
+
+
+def _distinct(sentences: list[_Sentence]) -> list[_Sentence]:
+    """One copy of each sentence.
+
+    Overlapping chunks repeat sentences, and two documents can share a line. A chunk can also begin or
+    end part way through a sentence. So a sentence whose words appear, in order, in a longer one is
+    dropped, and the longer one keeps the better score; an exact repeat goes to the better-ranked source.
+    """
+    kept: list[_Sentence] = []
+    for s in sorted(sentences, key=lambda s: (-len(s.words), s.source)):
+        same = next((k for k in kept if s.words in k.words), None)
+        if same is None:
+            kept.append(s)
+        elif s.score > same.score:
+            same.score = s.score
+    return kept
+
+
+def answer_extractively(question: str, hits: list[Hit], query: str | None = None) -> str:
+    """The extractive answer to the latest question; `query` is the combined retrieval query.
+
+    Sentences are matched against the new question's own topic words first. Against the combined
+    query, the longer previous question outscores a short follow-up: "and for damaged items?" after a
+    refund question would get the refund sentence again. The combined query is used when the new
+    question matches nothing by itself: it names no topic ("why?", "а когда?", "ومتى؟"), or its
+    leftover words are ones the lists above miss. A word list alone must never turn a back-reference
+    follow-up into "not found".
+    """
+    answer = extractive_answer(question, hits)
+    if answer == NO_ANSWER and query and query.strip() != question.strip():
+        answer = extractive_answer(query, hits)
+    return answer
 
 
 def generate_answer(
     question: str, hits: list[Hit], history: Sequence[Turn] = (), query: str | None = None
 ) -> str:
-    """`query` is the retrieval query: extractive mode matches sentences against it."""
+    """`query` is the retrieval query (the question, or the question plus the previous one)."""
     if not hits:
         return NO_ANSWER
     if settings.llm_provider == "extractive":
-        return extractive_answer(query or question, hits)
+        return answer_extractively(question, hits, query)
     return chat(SYSTEM_PROMPT, f"Sources:\n{format_sources(hits)}\n\nQuestion: {question}", history=history)
 
 
@@ -239,4 +372,4 @@ def answer_with_fallback(
     except Exception as exc:
         # One line, no traceback: on a free tier a 429 is routine, not an incident.
         log.warning("llm provider %s failed, using extractive answer: %r", settings.llm_provider, exc)
-        return extractive_answer(query or question, hits), FALLBACK_PROVIDER
+        return answer_extractively(question, hits, query), FALLBACK_PROVIDER

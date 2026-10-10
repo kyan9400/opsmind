@@ -130,6 +130,9 @@ export async function getDailySeries(tenantId: string, from: string, to: string)
   return out;
 }
 
+const lockTenant = (tx: pg.PoolClient, tenantId: string) =>
+  tx.query("SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE", [tenantId]);
+
 interface MetricUpsert {
   key: string;
   name: string;
@@ -146,7 +149,7 @@ async function upsertMetrics(tx: pg.PoolClient, tenantId: string, defs: MetricUp
   // Cap distinct metrics per tenant. Every view is O(metrics x days), and the AI service accepts
   // at most 100 series, so an unbounded import could stall exports for all tenants.
   // Locking the tenant row serialises concurrent imports so two can't both squeeze under the cap.
-  await tx.query("SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE", [tenantId]);
+  await lockTenant(tx, tenantId);
   const {
     rows: [{ n }],
   } = await tx.query<{ n: number }>(
@@ -201,8 +204,46 @@ async function upsertPoints(tx: pg.PoolClient, tenantId: string, points: { metri
   }
 }
 
-/** Import parsed CSV rows. Duplicate (metric, day) rows: the last one in the file wins. */
-export async function importRows(tenantId: string, rows: MetricRow[]) {
+export interface ImportOptions {
+  /**
+   * Sandboxes: refuse (413) an import that would leave the workspace with more KPI data points than this,
+   * counting what it already holds. Checked under the tenant row lock, so parallel imports cannot both fit.
+   */
+  maxPoints?: number;
+}
+
+async function assertPointBudget(
+  tx: pg.PoolClient,
+  tenantId: string,
+  points: { key: string; day: string }[],
+  max: number,
+) {
+  await lockTenant(tx, tenantId);
+  // Only (metric, day) pairs the workspace does not have yet add rows; the others are overwritten in place.
+  const {
+    rows: [{ existing, added }],
+  } = await tx.query<{ existing: number; added: number }>(
+    `SELECT (SELECT count(*) FROM metric_points WHERE tenant_id = $1)::int AS existing,
+            (SELECT count(*) FROM unnest($2::text[], $3::date[]) AS t(key, day)
+              WHERE NOT EXISTS (SELECT 1 FROM metrics m JOIN metric_points p ON p.metric_id = m.id
+                                 WHERE m.tenant_id = $1 AND m.key = t.key AND p.day = t.day))::int AS added`,
+    [tenantId, points.map((p) => p.key), points.map((p) => p.day)],
+  );
+  if (existing + added > max) {
+    throw new HttpError(
+      413,
+      `a temporary workspace holds at most ${max} KPI data points (it has ${existing}, this import would add ${added})`,
+    );
+  }
+}
+
+/** Import parsed CSV rows inside `tx`. Duplicate (metric, day) rows: the last one in the file wins. */
+export async function importRowsTx(
+  tx: pg.PoolClient,
+  tenantId: string,
+  rows: MetricRow[],
+  options: ImportOptions = {},
+) {
   // De-duplicate in memory first: Postgres rejects an upsert that touches the same row twice.
   const names = new Map<string, string>(); // key -> first-seen display name
   const points = new Map<string, { key: string; day: string; value: number }>();
@@ -211,38 +252,54 @@ export async function importRows(tenantId: string, rows: MetricRow[]) {
     if (!names.has(key)) names.set(key, r.metric);
     points.set(`${key}|${r.day}`, { key, day: r.day, value: r.value });
   }
+  if (options.maxPoints !== undefined) {
+    await assertPointBudget(tx, tenantId, [...points.values()], options.maxPoints);
+  }
 
-  return withTx(async (tx) => {
-    const ids = await upsertMetrics(
-      tx,
-      tenantId,
-      [...names].map(([key, name]) => ({ key, name })),
-      false,
-    );
-    await upsertPoints(
-      tx,
-      tenantId,
-      [...points.values()].map((p) => ({ metricId: ids.get(p.key)!, day: p.day, value: p.value })),
-    );
-    return { metrics: names.size, points: points.size };
-  });
+  const ids = await upsertMetrics(
+    tx,
+    tenantId,
+    [...names].map(([key, name]) => ({ key, name })),
+    false,
+  );
+  await upsertPoints(
+    tx,
+    tenantId,
+    [...points.values()].map((p) => ({ metricId: ids.get(p.key)!, day: p.day, value: p.value })),
+  );
+  return { metrics: names.size, points: points.size };
 }
 
-export async function importDemo(
+type DemoMetrics = {
+  name: string;
+  unit: string;
+  aggregation: Aggregation;
+  direction: Direction;
+  points: { day: string; value: number }[];
+}[];
+
+export async function importDemoTx(
+  tx: pg.PoolClient,
   tenantId: string,
-  metrics: { name: string; unit: string; aggregation: Aggregation; direction: Direction; points: { day: string; value: number }[] }[],
+  metrics: DemoMetrics,
+  options: ImportOptions = {},
 ) {
-  return withTx(async (tx) => {
-    const ids = await upsertMetrics(
-      tx,
-      tenantId,
-      metrics.map((m) => ({ key: metricKey(m.name), ...m })),
-      true,
-    );
-    const points = metrics.flatMap((m) =>
-      m.points.map((p) => ({ metricId: ids.get(metricKey(m.name))!, day: p.day, value: p.value })),
-    );
-    await upsertPoints(tx, tenantId, points);
-    return { metrics: metrics.length, points: points.length };
-  });
+  if (options.maxPoints !== undefined) {
+    const keyed = metrics.flatMap((m) => m.points.map((p) => ({ key: metricKey(m.name), day: p.day })));
+    await assertPointBudget(tx, tenantId, keyed, options.maxPoints);
+  }
+  const ids = await upsertMetrics(
+    tx,
+    tenantId,
+    metrics.map((m) => ({ key: metricKey(m.name), ...m })),
+    true,
+  );
+  const points = metrics.flatMap((m) =>
+    m.points.map((p) => ({ metricId: ids.get(metricKey(m.name))!, day: p.day, value: p.value })),
+  );
+  await upsertPoints(tx, tenantId, points);
+  return { metrics: metrics.length, points: points.length };
 }
+
+export const importDemo = (tenantId: string, metrics: DemoMetrics) =>
+  withTx((tx) => importDemoTx(tx, tenantId, metrics));

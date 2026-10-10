@@ -70,6 +70,20 @@ describe("ask history", () => {
     expect(aiPost.mock.calls[0]).toEqual(["/v1/ask", { tenant_id: "t1", question: "first question", top_k: 5 }]);
   });
 
+  it("passes on whether the documents held an answer, and leaves it out when the AI service does", async () => {
+    const reply = { answer: "I could not find this in your documents.", provider: "extractive", ms: 4, citations: [] };
+    const aiPost = vi.fn(async () => ({ status: 200, data: { ...reply, found: false } }));
+    vi.doMock("../src/lib/aiClient.js", () => ({ aiPost }));
+    vi.doMock("../src/lib/audit.js", () => ({ audit: async () => {} }));
+    const { app, bearer } = await loadApp({ AI_RATE_LIMIT: "0" });
+    const auth = bearer("viewer", { sub: "asker3" });
+    const ask = () => request(app).post("/api/v1/ask").set("authorization", auth).send({ question: "q" });
+
+    expect((await ask().expect(200)).body).toMatchObject({ answer: reply.answer, found: false });
+    aiPost.mockResolvedValueOnce({ status: 200, data: reply as typeof reply & { found: boolean } });
+    expect((await ask().expect(200)).body).not.toHaveProperty("found");
+  });
+
   it("rejects a sixth turn before any AI call", async () => {
     const aiPost = vi.fn();
     vi.doMock("../src/lib/aiClient.js", () => ({ aiPost }));

@@ -15,7 +15,9 @@ const shot = (page: Page, name: string) =>
 test.describe("README screenshots", { tag: "@screenshots" }, () => {
   test.skip(process.env.SCREENSHOTS !== "1", "set SCREENSHOTS=1 to regenerate docs/screenshots");
   test.describe.configure({ mode: "serial" });
-  test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  // Reduced motion: the Ask answer appears at once and the page jumps instead of smooth-scrolling, so no
+  // shot catches a half-typed answer (animations: "disabled" only stops CSS, not the JS reveal).
+  test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, reducedMotion: "reduce" });
 
   let owner: Account;
 
@@ -61,7 +63,7 @@ test.describe("README screenshots", { tag: "@screenshots" }, () => {
     await page.goto("/dashboard/ask");
     await page.getByTestId("ask-input").fill(REFUND_QUESTION);
     await page.getByTestId("ask-submit").click();
-    await expect(page.getByTestId("ask-answer")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("ask-answer")).toHaveAttribute("data-typing", "done", { timeout: 30_000 });
     await expect(page.getByTestId("ask-source").first()).toBeVisible();
     await page.getByTestId("ask-input").blur();
     await shot(page, "ask.png");
