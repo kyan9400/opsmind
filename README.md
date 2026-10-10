@@ -272,7 +272,7 @@ docker compose up --build
 
 - Web: http://localhost:3000
 - API: http://localhost:4000/health
-- AI service: http://localhost:8000/docs (interactive docs; the `/v1/*` routes need the `x-internal-token` header, and the service is never exposed in production)
+- AI service: http://localhost:8000/health. Its interactive API docs (`/docs`, `/openapi.json`) are served only with `API_DOCS=true`. The `/v1/*` routes need the `x-internal-token` header (`AI_SERVICE_TOKEN`). Behind Caddy on the VM the service is not reachable from outside. On the serverless profile it is its own public Vercel function, so that token is what protects `/v1/*`, and the docs stay off.
 
 The quickest way to a populated workspace is `bash .devcontainer/start.sh`: it starts the same stack, seeds the [demo workspace](#demo-workspace) and prints the login.
 

@@ -215,6 +215,7 @@ Open these addresses (replace with yours):
 | `API_URL/ready` | `{"status":"ready"}` |
 | `API_URL/metrics` | `{"error":"not found"}` (hidden on purpose) |
 | `AI_URL/metrics` | `{"detail":"Not Found"}` (hidden on purpose) |
+| `AI_URL/docs` and `AI_URL/openapi.json` | `{"detail":"Not Found"}` (API docs are off unless `API_DOCS=true`) |
 
 Also test from a Russian home network, from mobile internet without VPN, and from abroad
 (for example with <https://check-host.net> → "HTTP" check).
@@ -349,6 +350,7 @@ it and has no fix yet).
 | `MAX_UPLOAD_BYTES` | api | `10485760` | `4194304` | Largest upload. |
 | `ALLOW_REGISTRATION` | api | `true` | `false` | `false`: sign-up answers 403. |
 | `METRICS_PUBLIC` | api, ai | `true` | `false` | `false`: `/metrics` answers 404. |
+| `API_DOCS` | ai | `false` | `false` | `true` serves the interactive API docs (`/docs`, `/redoc`, `/openapi.json`). Off by default, because on Vercel the ai service is public and only `AI_SERVICE_TOKEN` protects `/v1/*`. |
 | `CRON_SECRET` | api | unset | random | Enables `/api/internal/cron/seed` for `Authorization: Bearer <secret>`. |
 | `DEMO_EMAIL`, `DEMO_PASSWORD` | api | unset | demo login | Used by the daily seed. |
 | `ALLOW_SANDBOX` | api | `false` | `true` | `true`: `POST /api/v1/sandbox` creates 24-hour private workspaces. Expired ones are deleted when the next one is created (10 at a time) and by the daily job. |
