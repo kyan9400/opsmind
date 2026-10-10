@@ -1,14 +1,14 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { demoEnabled, DemoLoginButton } from "@/components/DemoLoginButton";
-import { IconAlert, IconArrowRight } from "@/components/icons";
+import { IconAlert, IconArrowRight, IconInfo } from "@/components/icons";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Logo } from "@/components/Logo";
 import { SandboxButton, sandboxEnabled } from "@/components/SandboxButton";
-import { api, ApiError, setToken } from "@/lib/api";
+import { api, ApiError, clearToken, getToken, type Me, sandboxExpiry, setToken } from "@/lib/api";
 import { registrationEnabled } from "@/lib/flags";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW } from "@/lib/preview";
@@ -60,6 +60,21 @@ function AuthForm() {
   const [mode, setMode] = useState(registrationEnabled && params.get("mode") === "register" ? "register" : "login");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ended, setEnded] = useState<"login.sandboxExpired" | "login.sessionExpired" | null>(null);
+
+  // The dashboard sends any 401 here. A stored token the API now refuses means the session ran out (or the
+  // sandbox did): say so rather than show a bare sign-in form.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    const sandbox = sandboxExpiry() !== null;
+    api<Me>("/auth/me").catch((err) => {
+      // Not if the visitor has signed in meanwhile.
+      if (!(err instanceof ApiError && err.status === 401) || getToken() !== token) return;
+      clearToken();
+      setEnded(sandbox ? "login.sandboxExpired" : "login.sessionExpired");
+    });
+  }, []);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -90,6 +105,17 @@ function AuthForm() {
       <p className="mt-1.5 text-sm text-fg-muted">
         {mode === "login" ? t("login.subtitleSignIn") : t("login.subtitleRegister")}
       </p>
+
+      {ended && (
+        <p
+          role="status"
+          data-testid="login-session-ended"
+          className="mt-4 flex items-start gap-2 rounded-control border border-brand-line bg-brand-soft px-3 py-2 text-sm text-brand-soft-fg"
+        >
+          <IconInfo size={16} className="mt-0.5 shrink-0" />
+          <span>{t(ended)}</span>
+        </p>
+      )}
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4" data-testid="login-form">
         {mode === "register" && (

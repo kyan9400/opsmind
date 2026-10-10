@@ -7,10 +7,22 @@ import { createTranslator } from "./i18n/translate";
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/+$/, "");
 const apiUrl = (path: string) => `${BASE}/api/v1${path}`;
 const TOKEN_KEY = "opsmind.token";
+// Set while the stored token is a sandbox's: its expiry. After a 401 it is the only sign of what ended.
+const SANDBOX_KEY = "opsmind.sandbox";
 
 export const getToken = () => (typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY));
-export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
-export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+/** Stores a session; `sandboxExpiresAt` marks it as a temporary workspace's. */
+export const setToken = (t: string, sandboxExpiresAt?: string | null) => {
+  localStorage.setItem(TOKEN_KEY, t);
+  if (sandboxExpiresAt) localStorage.setItem(SANDBOX_KEY, sandboxExpiresAt);
+  else localStorage.removeItem(SANDBOX_KEY);
+};
+export const clearToken = () => {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(SANDBOX_KEY);
+};
+/** When the stored session is a sandbox's: its expiry (ISO), else null. */
+export const sandboxExpiry = () => (typeof window === "undefined" ? null : localStorage.getItem(SANDBOX_KEY));
 
 export class ApiError extends Error {
   constructor(

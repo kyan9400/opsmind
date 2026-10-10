@@ -56,6 +56,8 @@ export const ar: Dict = {
   "login.metaTitle": "تسجيل الدخول أو إنشاء حساب",
   "login.metaTitleSignIn": "تسجيل الدخول",
   "login.registrationClosed": "التسجيل مغلق في هذا الموقع.",
+  "login.sessionExpired": "انتهت صلاحية الجلسة. يُرجى تسجيل الدخول مرة أخرى.",
+  "login.sandboxExpired": "انتهت صلاحية مساحة العمل المؤقتة، ولم تعد ملفاتها متاحة.",
   "login.submitRegister": "إنشاء مساحة عمل",
   "login.toRegister": "مستخدم جديد؟ أنشئ مساحة عمل",
   "login.toSignIn": "لديك حساب بالفعل؟ سجّل الدخول",
@@ -292,4 +294,5 @@ export const ar: Dict = {
   "sandbox.bannerHint": "خاصة بك وحدك: ارفع ملفاتك واطرح أسئلة عنها.",
   "sandbox.rateLimited": "أُنشئ عدد كبير جدًا من مساحات العمل المؤقتة من شبكتك. حاول مرة أخرى لاحقًا.",
   "sandbox.busy": "يوجد الآن عدد كبير جدًا من مساحات العمل المؤقتة. حاول مرة أخرى لاحقًا.",
+  "sandbox.confirmEnd": "ستُحذف مساحة العمل المؤقتة والملفات التي رفعتها. هل تريد المتابعة؟",
 };

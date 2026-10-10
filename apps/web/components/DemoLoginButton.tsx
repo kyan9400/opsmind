@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconArrowRight, IconSparkles } from "@/components/icons";
-import { api, setToken } from "@/lib/api";
+import { api, getToken, setToken } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW } from "@/lib/preview";
+import { endSandbox, liveSandbox } from "@/lib/sandbox";
 
 // Inlined at build time; when either is unset the button is not rendered at all.
 const DEMO_EMAIL = process.env.NEXT_PUBLIC_DEMO_EMAIL;
@@ -31,13 +32,19 @@ export function DemoLoginButton({
   if (!demoEnabled) return null;
 
   async function start() {
+    // The demo session replaces the stored one, and a sandbox's token is its only key: ask before dropping it.
+    const sandbox = liveSandbox();
+    if (sandbox && !confirm(t("sandbox.confirmEnd"))) return;
     setBusy(true);
     setError(null);
     try {
+      const previous = getToken();
       const { token } = await api<{ token: string }>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD }),
       });
+      // Only once the demo session works, so a failed sign-in leaves the sandbox as it was.
+      if (sandbox) endSandbox(previous);
       setToken(token);
       router.push("/dashboard/analytics");
     } catch (err) {

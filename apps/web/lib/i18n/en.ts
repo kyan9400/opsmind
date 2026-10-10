@@ -69,6 +69,9 @@ export const en = {
   // Tab title for /login when sign-up is closed (NEXT_PUBLIC_REGISTRATION=false).
   "login.metaTitleSignIn": "Sign in",
   "login.registrationClosed": "Sign-up is closed on this site.",
+  // Shown on /login when the stored session is refused (the dashboard sends every 401 there).
+  "login.sessionExpired": "Your session has expired. Please sign in again.",
+  "login.sandboxExpired": "Your temporary workspace has expired, and its files are no longer available.",
   "login.submitRegister": "Create workspace",
   "login.toRegister": "New here? Create a workspace",
   "login.toSignIn": "Already have an account? Sign in",
@@ -278,4 +281,6 @@ export const en = {
   "sandbox.bannerHint": "Private to you: upload your own files and ask about them.",
   "sandbox.rateLimited": "Too many temporary workspaces were created from your network. Try again later.",
   "sandbox.busy": "There are too many temporary workspaces right now. Try again later.",
+  // Before "Sign out" or "Try the live demo" ends a sandbox: its token is the only way back in.
+  "sandbox.confirmEnd": "This deletes your temporary workspace and the files you uploaded. Continue?",
 } satisfies Record<string, string | PluralForms>;
