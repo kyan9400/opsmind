@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: mirror.gcr.io/pgvector/pgvector:pg16 # Docker Hub image via Google's mirror (rate limits)
         env:
           POSTGRES_USER: opsmind
           POSTGRES_PASSWORD: opsmind
@@ -24,7 +24,7 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U opsmind" --health-interval 5s --health-retries 10
       redis:
-        image: redis:7-alpine
+        image: mirror.gcr.io/library/redis:7-alpine # Docker Hub image via Google's mirror (rate limits)
         ports: ["6379:6379"]
     env:
       DATABASE_URL: postgres://opsmind:opsmind@localhost:5432/opsmind_test
@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: mirror.gcr.io/pgvector/pgvector:pg16 # Docker Hub image via Google's mirror (rate limits)
         env:
           POSTGRES_USER: opsmind
           POSTGRES_PASSWORD: opsmind
@@ -90,6 +90,7 @@ jobs:
       AI_RATE_LIMIT: "0"
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
       - run: docker compose up -d --build --wait postgres redis api ai worker
       - run: bash scripts/smoke.sh
       - name: Demo workspace is seeded and read-only
@@ -116,6 +117,9 @@ jobs:
       PROMETHEUS_IMAGE: prom/prometheus:v3.5.0 # keep in sync with docker-compose.observability.yml
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          images: ${{ env.PROMETHEUS_IMAGE }}
       - name: promtool check config
         run: >-
           docker run --rm -v "$PWD/ops/prometheus:/etc/prometheus:ro"
@@ -141,6 +145,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          images: caddy:2.10-alpine
       - uses: hashicorp/setup-terraform@v3
       - run: terraform fmt -check -recursive infra
       - run: terraform init -backend=false
@@ -168,6 +175,7 @@ jobs:
       AI_RATE_LIMIT: "0"
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
       - run: docker compose up -d --build --wait postgres redis api ai worker
       - uses: grafana/setup-k6-action@v1
       # k6 exits non-zero only when a threshold fails; that is what should fail this job.
@@ -201,6 +209,7 @@ jobs:
       CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
       - uses: azure/setup-helm@v4
         with:
           version: v3.17.3
@@ -237,7 +246,8 @@ jobs:
           cluster_name: opsmind
           config: deploy/kind/kind-config.yaml
       - name: Load images into kind
-        run: kind load docker-image opsmind-api:ci opsmind-ai:ci opsmind-web:ci --name opsmind
+        # Postgres and Redis too (fetched from the mirror above), so the cluster never asks Docker Hub.
+        run: kind load docker-image opsmind-api:ci opsmind-ai:ci opsmind-web:ci pgvector/pgvector:pg16 redis:7-alpine --name opsmind
       - name: Deploy and run end-to-end tests
         run: bash scripts/kind-e2e.sh
 
@@ -245,7 +255,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: mirror.gcr.io/pgvector/pgvector:pg16 # Docker Hub image via Google's mirror (rate limits)
         env:
           POSTGRES_USER: opsmind
           POSTGRES_PASSWORD: opsmind
@@ -304,6 +314,7 @@ jobs:
       API_URL: http://localhost:4000
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
       - run: docker compose up -d --build --wait postgres redis api ai worker web
       # The web image has no healthcheck, so --wait only means "started"; wait until Next.js answers.
       - name: Wait for the web app
@@ -372,6 +383,7 @@ jobs:
       API_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
       - name: Start the stack with the Codespaces overlay
         run: bash .devcontainer/start.sh
       - name: Starting again (a restarted codespace) is harmless
@@ -470,7 +482,7 @@ jobs:
         shell: bash # explicit bash adds -o pipefail
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: mirror.gcr.io/pgvector/pgvector:pg16 # Docker Hub image via Google's mirror (rate limits)
         env:
           POSTGRES_USER: opsmind
           POSTGRES_PASSWORD: opsmind
@@ -696,6 +708,7 @@ jobs:
       PREVIEW_BASE_PATH: /opsmind
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
       - run: docker compose up -d --build --wait postgres redis api ai worker
       - name: Seed the demo workspace
         run: docker compose exec -T -e DEMO_EMAIL=demo@opsmind.dev -e DEMO_PASSWORD=opsmind-demo api node dist/seedDemo.js

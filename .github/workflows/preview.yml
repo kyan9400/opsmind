@@ -28,6 +28,7 @@ jobs:
       DEMO_PASSWORD: opsmind-demo
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/docker-hub-mirror
       - name: Start the stack
         run: docker compose up -d --build --wait postgres redis api ai worker
       - name: Seed the demo workspace
