@@ -13,6 +13,7 @@ from typing import NamedTuple
 import httpx
 
 from .config import settings
+from .db import get_pool
 from .embeddings import tokenize
 from .retrieval import STOPWORDS, Hit
 from .telemetry import LLM_DURATION, timed
@@ -154,6 +155,29 @@ def has_llm() -> bool:
     return settings.llm_provider in PROVIDERS
 
 
+class DailyLimitReached(RuntimeError):
+    """Today's LLM_DAILY_MAX calls are used up. Callers fall back as they do when a provider fails."""
+
+
+def count_llm_call() -> None:
+    """Count one call against today's (UTC) LLM_DAILY_MAX, or raise DailyLimitReached.
+
+    A single statement, so two instances cannot both take the last call. Attempts count, failed ones
+    too: a provider that keeps failing because its own quota is spent stops being called as well.
+    """
+    if settings.llm_daily_max <= 0:
+        return
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """INSERT INTO llm_usage (day, calls) VALUES ((now() AT TIME ZONE 'UTC')::date, 1)
+               ON CONFLICT (day) DO UPDATE SET calls = llm_usage.calls + 1 WHERE llm_usage.calls < %s
+               RETURNING calls""",
+            (settings.llm_daily_max,),
+        ).fetchone()
+    if row is None:
+        raise DailyLimitReached(f"LLM_DAILY_MAX reached: {settings.llm_daily_max} LLM calls today (UTC)")
+
+
 def chat(
     system: str,
     user: str,
@@ -164,10 +188,12 @@ def chat(
     """Completion with the configured provider (its default timeout unless given).
 
     Prior turns go in as real user/assistant messages, so the model resolves follow-ups itself.
+    Raises DailyLimitReached once today's LLM_DAILY_MAX calls are used up.
     """
     if settings.llm_provider not in PROVIDERS:
         raise ValueError(f"LLM_PROVIDER {settings.llm_provider!r} has no chat model")
     fn = PROVIDERS[settings.llm_provider]
+    count_llm_call()
     messages: list[Message] = []
     for turn in history:
         messages += [{"role": "user", "content": turn.question}, {"role": "assistant", "content": turn.answer}]

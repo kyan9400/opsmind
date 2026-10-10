@@ -507,3 +507,59 @@ def test_topic_words_drop_connectors_back_references_and_joined_arabic_and():
     assert llm.topic_words("وماذا عن وقت الشحن؟") == {"وقت", "الشحن"}  # "وقت" (time) keeps its و
     assert llm.topic_words("لماذا؟") == llm.topic_words("فماذا عن ذلك؟") == set()
     assert llm.topic_words("فندق") == {"فندق"}  # "hotel": its ف is part of the word
+
+
+# ---------------------------------------------------------------- daily cap (LLM_DAILY_MAX)
+
+
+@pytest.fixture
+def cap(compatible, monkeypatch):
+    """The openai-compatible provider with LLM_DAILY_MAX set; returns the route function."""
+
+    def set_cap(value: str):
+        monkeypatch.setenv("LLM_DAILY_MAX", value)
+        monkeypatch.setattr(llm, "settings", Settings())
+        monkeypatch.setattr(insights, "settings", llm.settings)
+        return compatible
+
+    return set_cap
+
+
+def test_llm_calls_stop_at_the_daily_cap(cap, llm_usage):
+    seen = cap("2")(ok("Within 30 days [1]."))
+    providers = [llm.answer_with_fallback("How many days to request a refund?", HITS)[1] for _ in range(3)]
+    assert providers == ["openai-compatible", "openai-compatible", llm.FALLBACK_PROVIDER]
+    assert len(seen) == llm_usage.calls == 2  # the third question never reached the provider
+
+
+def test_ask_past_the_daily_cap_answers_extractively(fake_search, cap, llm_usage):
+    seen = cap("5")(ok("unused [1]."))
+    llm_usage.calls = 5
+    data = ask("How many days to request a refund?")
+    assert data["provider"] == llm.FALLBACK_PROVIDER and data["found"] is True and "30 days" in data["answer"]
+    assert seen == []
+
+
+def test_a_summary_past_the_daily_cap_uses_the_template_without_a_traceback(cap, llm_usage, caplog):
+    seen = cap("1")(ok("Revenue is flat."))
+    llm_usage.calls = 1
+    assert insights.summarize([], []) == ("No unusual movements in this period.", "template")
+    assert seen == []
+    assert "LLM_DAILY_MAX reached: 1 LLM calls today (UTC); using template" in caplog.text
+    assert "Traceback" not in caplog.text
+
+
+def test_the_daily_cap_defaults_to_300_and_0_turns_it_off(cap, llm_usage, monkeypatch):
+    monkeypatch.delenv("LLM_DAILY_MAX", raising=False)
+    assert Settings().llm_daily_max == 300
+    seen = cap("0")(ok("Within 30 days [1]."))
+    for _ in range(3):
+        assert llm.answer_with_fallback("refund?", HITS)[1] == "openai-compatible"
+    assert len(seen) == 3 and llm_usage.calls == 0  # nothing counted: the table is not touched
+
+
+def test_extractive_answers_are_not_counted(llm_usage, monkeypatch):
+    monkeypatch.setattr(llm, "settings", Settings())  # extractive default
+    assert llm.answer_with_fallback("refund?", HITS)[1] == "extractive"
+    assert insights.summarize([], [])[1] == "template"
+    assert llm_usage.calls == 0

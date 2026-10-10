@@ -78,6 +78,11 @@ class Settings:
     # some hosts reject fields they do not know. Cloudflare Workers AI with Gemma 4 (thinking is on
     # by default there): {"chat_template_kwargs": {"enable_thinking": false}}.
     llm_extra_body: dict[str, Any] = field(default_factory=lambda: _json_object("LLM_EXTRA_BODY"))
+    # LLM calls per UTC day for the whole deployment, answers and summaries together, counted in the
+    # llm_usage table. Free tiers are daily budgets (Cloudflare Workers AI: 10,000 neurons, reset at
+    # 00:00 UTC), and per-minute rate limits alone let one script use up a day's budget in minutes. Past
+    # the cap, answers are extractive and summaries use the template until the next UTC day. 0: no cap.
+    llm_daily_max: int = field(default_factory=lambda: _int("LLM_DAILY_MAX", 300))
 
     # Ingest limits: an upload's text is decompressed (PDF), chunked and embedded, and every chunk
     # stores a 768-d vector plus index entries (~8 KB). These keep one upload from taking minutes of

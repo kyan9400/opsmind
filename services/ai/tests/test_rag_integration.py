@@ -4,11 +4,13 @@ Requires the schema from apps/api/migrations. Enable with INTEGRATION=1.
 """
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
+import app.llm as llm
+from app.config import Settings, settings
 from app.db import get_pool
 from app.main import app
 
@@ -90,3 +92,27 @@ def test_document_over_the_text_limit_is_marked_failed():
             (doc,),
         ).fetchone()
     assert status == "failed" and error.startswith("document too long") and chunks == 0
+
+
+def test_llm_daily_cap_is_counted_atomically_in_the_database(monkeypatch):
+    monkeypatch.setattr(llm, "get_pool", get_pool)  # the llm_usage table, not the tests' in-memory one
+    monkeypatch.setenv("LLM_DAILY_MAX", "5")
+    monkeypatch.setattr(llm, "settings", Settings())
+    today = "(now() AT TIME ZONE 'UTC')::date"
+    with get_pool().connection() as conn:
+        conn.execute(f"DELETE FROM llm_usage WHERE day = {today}")
+
+    def take() -> bool:
+        try:
+            llm.count_llm_call()
+            return True
+        except llm.DailyLimitReached:
+            return False
+
+    # Concurrent instances: exactly the cap gets through, never one more.
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        taken = list(pool.map(lambda _: take(), range(12)))
+    assert taken.count(True) == 5
+    with get_pool().connection() as conn:
+        assert conn.execute(f"SELECT calls FROM llm_usage WHERE day = {today}").fetchone() == (5,)
+        conn.execute(f"DELETE FROM llm_usage WHERE day = {today}")
