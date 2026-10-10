@@ -325,7 +325,7 @@ def test_default_limits_cap_a_4_mb_upload(ingest):
     assert db.inserted == []
 
 
-# ---------------------------------------------------------------- text the database cannot store
+# ---------------------------------------------------------------- text that cannot be read or stored
 
 
 def broken_unicode_pdf(text: str) -> bytes:
@@ -367,3 +367,13 @@ def test_text_the_database_refuses_is_422_and_marks_the_document_failed(ingest, 
     assert res.json()["detail"].startswith("could not store the document's text: 'utf-8' codec can't encode")
     assert db.failure() == res.json()["detail"]
     assert db.inserted == []
+
+
+def test_a_text_file_in_an_unknown_encoding_is_422_and_says_how_to_fix_it(ingest):
+    res, db = ingest("Après 30 jours, nous offrons un crédit en magasin.".encode("cp1252"))
+    assert res.status_code == 422
+    assert db.failure() == res.json()["detail"] == extract.NOT_UTF8
+    assert db.inserted == []
+    russian = "Клиент может вернуть товар в течение 14 дней."
+    res, db = ingest(russian.encode("cp1251"))
+    assert res.status_code == 200 and [row[3] for row in db.inserted] == [russian]

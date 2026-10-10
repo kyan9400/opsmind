@@ -1,5 +1,7 @@
+import codecs
 import math
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.embeddings import HashEmbedder, tokenize
@@ -35,6 +37,49 @@ def test_hash_embeddings_are_deterministic_normalised_and_lexical():
 def test_extract_plain_text_normalises_whitespace():
     raw = "Title\r\n\r\n\r\n\r\nBody   with\t\tspaces\x00".encode()
     assert extract_text(raw, "text/plain") == "Title\n\nBody with spaces"
+
+
+RU = "Политика возврата\n\nКлиент может вернуть товар в течение 14 дней. Деньги вернём на карту."
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        RU.encode("utf-8"),
+        RU.encode("utf-8-sig"),
+        RU.encode("utf-16"),  # with a byte order mark, as Notepad's "Unicode" writes it
+        codecs.BOM_UTF16_BE + RU.encode("utf-16-be"),
+        RU.encode("cp1251"),  # older Russian Windows programs and 1C exports
+    ],
+    ids=["utf-8", "utf-8-bom", "utf-16-le", "utf-16-be", "windows-1251"],
+)
+def test_text_uploads_in_common_encodings_are_read(raw):
+    assert extract_text(raw, "text/plain") == RU
+
+
+def test_windows_1252_punctuation_in_english_text_is_read():
+    assert extract_text("Refunds are “final” – no exceptions…".encode("cp1252"), "text/plain") == (
+        "Refunds are “final” – no exceptions…"
+    )
+
+
+def test_a_few_damaged_bytes_in_utf_8_are_replaced():
+    assert extract_text(RU.encode() * 3 + b"\xff", "text/plain").endswith("на карту.\ufffd")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        RU.encode("koi8-r"),
+        "سياسة الاسترداد: يمكن للعميل إرجاع المنتج خلال 14 يومًا من الاستلام.".encode("cp1256"),
+        "Après 30 jours, nous offrons un crédit en magasin à la caisse.".encode("cp1252"),
+        bytes(range(256)) * 4,
+    ],
+    ids=["koi8-r", "windows-1256", "windows-1252", "binary"],
+)
+def test_text_in_other_encodings_is_refused_rather_than_stored_as_garbage(raw):
+    with pytest.raises(ValueError, match="^the file is not UTF-8 text: save it as UTF-8 and upload"):
+        extract_text(raw, "text/plain")
 
 
 def test_extractive_answer_cites_the_matching_source():

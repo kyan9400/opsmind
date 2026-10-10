@@ -1,3 +1,4 @@
+import codecs
 import io
 import math
 import re
@@ -23,6 +24,11 @@ class DocumentOverLimit(ValueError):
     """An upload over an ingest limit. /v1/ingest answers 422, which the API does not retry."""
 
 
+# A byte order mark names the encoding. Notepad's "Unicode" and Windows PowerShell's `>` write UTF-16.
+_BOMS = ((codecs.BOM_UTF8, "utf-8"), (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be"))
+NOT_UTF8 = "the file is not UTF-8 text: save it as UTF-8 and upload it again"
+
+
 def extract_text(
     content: bytes,
     mime_type: str,
@@ -35,9 +41,47 @@ def extract_text(
     if mime_type == "application/pdf":
         text = _pdf_text(content, max_chars, max_pdf_pages, max_pdf_content_bytes, max_pdf_seconds)
     else:
-        text = normalise(content.decode("utf-8", errors="replace"))
+        text = normalise(decode_text(content))
     if 0 < max_chars < len(text):
         raise DocumentOverLimit(f"document too long: {len(text):,} characters of text (limit {max_chars:,})")
+    return text
+
+
+def decode_text(content: bytes) -> str:
+    """An uploaded text file as str: UTF-8 with or without a byte order mark, UTF-16 with one, or Russian
+    in Windows-1251, which older Windows programs and 1C exports still write.
+
+    Anything else is refused (ValueError, so a 422 and a failed document with this reason). Read as UTF-8
+    it would be replacement characters that no question can match, in a document shown as ready.
+    """
+    for bom, codec in _BOMS:
+        if content.startswith(bom):
+            text = content[len(bom) :].decode(codec, errors="replace")
+            break
+    else:
+        try:
+            return content.decode("utf-8")
+        except UnicodeDecodeError:
+            text = _russian_cp1251(content) or content.decode("utf-8", errors="replace")
+    # A few damaged bytes are no reason to refuse a file; more mean another encoding.
+    if text.count("\ufffd") * 100 > len(text):
+        raise ValueError(NOT_UTF8)
+    return text
+
+
+def _russian_cp1251(content: bytes) -> str | None:
+    """`content` read as Windows-1251, if that gives Russian."""
+    try:
+        text = content.decode("cp1251")
+    except UnicodeDecodeError:  # byte 0x98 has no character in Windows-1251
+        return None
+    letters = "".join(w for w in re.findall(r"[^\W\d_]+", text.lower()) if re.search("[\u0400-\u04ff]", w))
+    # Russian words are ~42% vowels. Other 8-bit encodings read as Windows-1251 (KOI8-R, Arabic
+    # Windows-1256, Western Windows-1252) give under 25% in the words that come out Cyrillic. With no
+    # Cyrillic at all, the only non-ASCII bytes were punctuation such as quotes and dashes, which
+    # Windows-1252 writes with the same bytes.
+    if letters and sum(c in "аеёиоуыэюя" for c in letters) < 0.3 * len(letters):
+        return None
     return text
 
 
