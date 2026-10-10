@@ -200,6 +200,38 @@ def test_ask_rate_limited_llm_still_answers(fake_search, compatible):
     assert data["retrieval_query"] == "How many days for a refund?"
 
 
+def ask(question: str) -> dict:
+    body = {"tenant_id": TENANT, "question": question}
+    res = TestClient(main.app).post("/v1/ask", headers=HEADERS, json=body)
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_ask_flags_a_question_the_sources_do_not_answer(fake_search, monkeypatch):
+    monkeypatch.setattr(llm, "settings", Settings())  # extractive default
+    assert ask("How many days to request a refund?")["found"] is True
+    # The English sources share no word with a Russian question: the reply is the English no-answer text,
+    # and the flag lets the web say so in Russian.
+    data = ask("Сколько дней на возврат?")
+    assert data["answer"] == llm.NO_ANSWER and data["found"] is False
+    assert not any(c["cited"] for c in data["citations"])
+
+
+@pytest.mark.parametrize(
+    "text, found",
+    [
+        ("Within 30 days [1].", True),
+        ("В источниках нет ответа на этот вопрос.", False),
+        ("Bad citation [7].", False),
+    ],
+    ids=["cited", "uncited", "out-of-range"],
+)
+def test_ask_flags_a_model_reply_that_cites_no_source(fake_search, compatible, text, found):
+    compatible(ok(text))
+    data = ask("Сколько дней на возврат?")
+    assert data["provider"] == "openai-compatible" and data["answer"] == text and data["found"] is found
+
+
 @pytest.mark.parametrize(
     "history",
     [
@@ -475,3 +507,59 @@ def test_topic_words_drop_connectors_back_references_and_joined_arabic_and():
     assert llm.topic_words("وماذا عن وقت الشحن؟") == {"وقت", "الشحن"}  # "وقت" (time) keeps its و
     assert llm.topic_words("لماذا؟") == llm.topic_words("فماذا عن ذلك؟") == set()
     assert llm.topic_words("فندق") == {"فندق"}  # "hotel": its ف is part of the word
+
+
+# ---------------------------------------------------------------- daily cap (LLM_DAILY_MAX)
+
+
+@pytest.fixture
+def cap(compatible, monkeypatch):
+    """The openai-compatible provider with LLM_DAILY_MAX set; returns the route function."""
+
+    def set_cap(value: str):
+        monkeypatch.setenv("LLM_DAILY_MAX", value)
+        monkeypatch.setattr(llm, "settings", Settings())
+        monkeypatch.setattr(insights, "settings", llm.settings)
+        return compatible
+
+    return set_cap
+
+
+def test_llm_calls_stop_at_the_daily_cap(cap, llm_usage):
+    seen = cap("2")(ok("Within 30 days [1]."))
+    providers = [llm.answer_with_fallback("How many days to request a refund?", HITS)[1] for _ in range(3)]
+    assert providers == ["openai-compatible", "openai-compatible", llm.FALLBACK_PROVIDER]
+    assert len(seen) == llm_usage.calls == 2  # the third question never reached the provider
+
+
+def test_ask_past_the_daily_cap_answers_extractively(fake_search, cap, llm_usage):
+    seen = cap("5")(ok("unused [1]."))
+    llm_usage.calls = 5
+    data = ask("How many days to request a refund?")
+    assert data["provider"] == llm.FALLBACK_PROVIDER and data["found"] is True and "30 days" in data["answer"]
+    assert seen == []
+
+
+def test_a_summary_past_the_daily_cap_uses_the_template_without_a_traceback(cap, llm_usage, caplog):
+    seen = cap("1")(ok("Revenue is flat."))
+    llm_usage.calls = 1
+    assert insights.summarize([], []) == ("No unusual movements in this period.", "template")
+    assert seen == []
+    assert "LLM_DAILY_MAX reached: 1 LLM calls today (UTC); using template" in caplog.text
+    assert "Traceback" not in caplog.text
+
+
+def test_the_daily_cap_defaults_to_300_and_0_turns_it_off(cap, llm_usage, monkeypatch):
+    monkeypatch.delenv("LLM_DAILY_MAX", raising=False)
+    assert Settings().llm_daily_max == 300
+    seen = cap("0")(ok("Within 30 days [1]."))
+    for _ in range(3):
+        assert llm.answer_with_fallback("refund?", HITS)[1] == "openai-compatible"
+    assert len(seen) == 3 and llm_usage.calls == 0  # nothing counted: the table is not touched
+
+
+def test_extractive_answers_are_not_counted(llm_usage, monkeypatch):
+    monkeypatch.setattr(llm, "settings", Settings())  # extractive default
+    assert llm.answer_with_fallback("refund?", HITS)[1] == "extractive"
+    assert insights.summarize([], [])[1] == "template"
+    assert llm_usage.calls == 0

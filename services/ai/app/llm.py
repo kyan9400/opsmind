@@ -7,11 +7,13 @@ Every provider receives the same numbered sources and must cite them as [n].
 import logging
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import httpx
 
 from .config import settings
+from .db import get_pool
 from .embeddings import tokenize
 from .retrieval import STOPWORDS, Hit
 from .telemetry import LLM_DURATION, timed
@@ -153,6 +155,29 @@ def has_llm() -> bool:
     return settings.llm_provider in PROVIDERS
 
 
+class DailyLimitReached(RuntimeError):
+    """Today's LLM_DAILY_MAX calls are used up. Callers fall back as they do when a provider fails."""
+
+
+def count_llm_call() -> None:
+    """Count one call against today's (UTC) LLM_DAILY_MAX, or raise DailyLimitReached.
+
+    A single statement, so two instances cannot both take the last call. Attempts count, failed ones
+    too: a provider that keeps failing because its own quota is spent stops being called as well.
+    """
+    if settings.llm_daily_max <= 0:
+        return
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            """INSERT INTO llm_usage (day, calls) VALUES ((now() AT TIME ZONE 'UTC')::date, 1)
+               ON CONFLICT (day) DO UPDATE SET calls = llm_usage.calls + 1 WHERE llm_usage.calls < %s
+               RETURNING calls""",
+            (settings.llm_daily_max,),
+        ).fetchone()
+    if row is None:
+        raise DailyLimitReached(f"LLM_DAILY_MAX reached: {settings.llm_daily_max} LLM calls today (UTC)")
+
+
 def chat(
     system: str,
     user: str,
@@ -163,10 +188,12 @@ def chat(
     """Completion with the configured provider (its default timeout unless given).
 
     Prior turns go in as real user/assistant messages, so the model resolves follow-ups itself.
+    Raises DailyLimitReached once today's LLM_DAILY_MAX calls are used up.
     """
     if settings.llm_provider not in PROVIDERS:
         raise ValueError(f"LLM_PROVIDER {settings.llm_provider!r} has no chat model")
     fn = PROVIDERS[settings.llm_provider]
+    count_llm_call()
     messages: list[Message] = []
     for turn in history:
         messages += [{"role": "user", "content": turn.question}, {"role": "assistant", "content": turn.answer}]
@@ -252,30 +279,61 @@ def topic_words(text: str) -> set[str]:
     return {w for w in tokenize(text) if w not in NON_TOPIC and not (w[0] in "وف" and w[1:] in NON_TOPIC)}
 
 
+@dataclass
+class _Sentence:
+    score: float
+    source: int  # the [n] it is cited as
+    order: int  # position across all sources, so equal scores keep reading order
+    text: str
+    words: str  # " w1 w2 ... ": one sentence's words inside another's means the same text
+
+
 def extractive_answer(
     question: str, hits: list[Hit], max_sentences: int = 3, min_relative: float = 0.5
 ) -> str:
     # Topic words only: function words ("how", "many", "for") would otherwise pull in
     # unrelated sentences that merely share them.
     q = topic_words(question)
-    scored: list[tuple[float, int, str]] = []
+    scored: list[_Sentence] = []
     for i, h in enumerate(hits, 1):
         title = set(tokenize(h.title))
         for sentence in re.split(r"(?<=[.!?。])\s+|\n+", h.content):
+            sentence = sentence.strip()
             words = tokenize(sentence)
-            # Headings are not answers: skip the document title and other very short fragments.
-            if len(words) < 4 or set(words) <= title:
+            # Headings are not answers: skip markdown headings, the document title and other very short
+            # fragments.
+            if sentence.startswith("#") or len(words) < 4 or set(words) <= title:
                 continue
-            overlap = len(q.intersection(words))
-            if overlap:
-                scored.append((overlap / (len(words) ** 0.5), i, sentence.strip()))
+            shared = q.intersection(words)
+            # Sharing only numbers is a coincidence: "$1,000" is "1" and "000", which match "Severity 1"
+            # and "5,000 RUB" in a question the sources do not answer.
+            if any(not w.isdigit() for w in shared):
+                score = len(shared) / len(words) ** 0.5
+                scored.append(_Sentence(score, i, len(scored), sentence, f" {' '.join(words)} "))
     if not scored:
         return NO_ANSWER
-    ranked = sorted(scored, key=lambda s: -s[0])
+    ranked = sorted(_distinct(scored), key=lambda s: (-s.score, s.order))
     # Fewer, relevant sentences beat padding the answer up to max_sentences.
-    cutoff = ranked[0][0] * min_relative
-    best = [s for s in ranked[:max_sentences] if s[0] >= cutoff]
-    return " ".join(f"{sentence} [{i}]" for _, i, sentence in best)
+    cutoff = ranked[0].score * min_relative
+    best = [s for s in ranked[:max_sentences] if s.score >= cutoff]
+    return " ".join(f"{s.text} [{s.source}]" for s in best)
+
+
+def _distinct(sentences: list[_Sentence]) -> list[_Sentence]:
+    """One copy of each sentence.
+
+    Overlapping chunks repeat sentences, and two documents can share a line. A chunk can also begin or
+    end part way through a sentence. So a sentence whose words appear, in order, in a longer one is
+    dropped, and the longer one keeps the better score; an exact repeat goes to the better-ranked source.
+    """
+    kept: list[_Sentence] = []
+    for s in sorted(sentences, key=lambda s: (-len(s.words), s.source)):
+        same = next((k for k in kept if s.words in k.words), None)
+        if same is None:
+            kept.append(s)
+        elif s.score > same.score:
+            same.score = s.score
+    return kept
 
 
 def answer_extractively(question: str, hits: list[Hit], query: str | None = None) -> str:

@@ -238,7 +238,12 @@ class FakeConn:
 
     @contextmanager
     def cursor(self):
-        yield type("Cursor", (), {"executemany": lambda _self, sql, rows: self.db.inserted.extend(rows)})()
+        def executemany(_self, sql, rows):
+            for row in rows:  # as psycopg does: text is sent as UTF-8, or refused before anything is sent
+                [p.encode("utf-8") for p in row if isinstance(p, str)]
+            self.db.inserted.extend(rows)
+
+        yield type("Cursor", (), {"executemany": executemany})()
 
 
 class FakeDb:
@@ -318,3 +323,57 @@ def test_default_limits_cap_a_4_mb_upload(ingest):
     res, db = ingest(paragraphs(10_000)[: 4 * 1024 * 1024])
     assert res.status_code == 422 and res.json()["detail"].startswith("document too long")
     assert db.inserted == []
+
+
+# ---------------------------------------------------------------- text that cannot be read or stored
+
+
+def broken_unicode_pdf(text: str) -> bytes:
+    """One page of Helvetica text whose ToUnicode map sends "A" to half of a UTF-16 surrogate pair."""
+    cmap = (
+        b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /Broken def\n"
+        b"1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <D835> endbfchar\n"
+        b"endcmap CMapName currentdict /CMap defineresource pop end end"
+    )
+    stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+    return build_pdf([
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> "
+        b"/Contents 5 0 R >>",
+        b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream), stream),
+        b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap),
+    ])
+
+
+def test_a_pdf_with_a_broken_unicode_map_is_indexed(ingest):
+    # pypdf returns "B\ud835" for "BA"; psycopg cannot encode a lone surrogate, so the insert used to fail.
+    res, db = ingest(broken_unicode_pdf("Refund within 30 days BA"), "application/pdf")
+    assert res.status_code == 200, res.text
+    assert [row[3] for row in db.inserted] == ["Refund within 30 days B\ufffd"]
+
+
+def test_split_surrogate_pairs_are_rejoined_and_lone_halves_replaced():
+    text = "bold \ud835\udc00, lone \ud835 and \udc00"  # as pypdf leaves them, one half per character code
+    assert extract.normalise(text) == "bold \U0001d400, lone \ufffd and \ufffd"
+
+
+def test_text_the_database_refuses_is_422_and_marks_the_document_failed(ingest, monkeypatch):
+    # Whatever gets past extraction: the document is failed with a reason, not left "processing" by a 500.
+    monkeypatch.setattr(main, "extract_text", lambda *args, **kwargs: "Refund within 30 days B\ud835")
+    res, db = ingest(b"unused")
+    assert res.status_code == 422
+    assert res.json()["detail"].startswith("could not store the document's text: 'utf-8' codec can't encode")
+    assert db.failure() == res.json()["detail"]
+    assert db.inserted == []
+
+
+def test_a_text_file_in_an_unknown_encoding_is_422_and_says_how_to_fix_it(ingest):
+    res, db = ingest("Après 30 jours, nous offrons un crédit en magasin.".encode("cp1252"))
+    assert res.status_code == 422
+    assert db.failure() == res.json()["detail"] == extract.NOT_UTF8
+    assert db.inserted == []
+    russian = "Клиент может вернуть товар в течение 14 дней."
+    res, db = ingest(russian.encode("cp1251"))
+    assert res.status_code == 200 and [row[3] for row in db.inserted] == [russian]

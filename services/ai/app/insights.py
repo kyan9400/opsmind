@@ -12,7 +12,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import httpx
 
 from .config import settings
-from .llm import chat, has_llm
+from .llm import DailyLimitReached, chat, has_llm
 
 log = logging.getLogger("opsmind.ai.insights")
 
@@ -135,6 +135,9 @@ def summarize(kpis: list[KpiDelta], anomalies: list[NamedAnomaly]) -> tuple[str,
     try:
         text = chat(SYSTEM_PROMPT, json.dumps(payload, ensure_ascii=False), timeout=SUMMARY_TIMEOUT, kind="summary")
         return text.strip(), settings.llm_provider
+    except DailyLimitReached as exc:  # expected on a busy day, not an incident: no traceback
+        log.warning("%s; using template", exc)
+        return template_summary(kpis, anomalies), "template"
     except Exception:
         log.exception("llm summary failed; using template")
         return template_summary(kpis, anomalies), "template"
