@@ -28,7 +28,8 @@ export default function DocumentsPage() {
   const { t, locale } = useI18n();
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
-  const [docs, setDocs] = useState<DocumentItem[]>([]);
+  // null until the first load returns, so "No documents yet." never flashes while the list is on its way.
+  const [docs, setDocs] = useState<DocumentItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -51,7 +52,7 @@ export default function DocumentsPage() {
   }, [load, router]);
 
   // Poll while anything is still being indexed.
-  const pending = docs.some((d) => d.status === "queued" || d.status === "processing");
+  const pending = !!docs?.some((d) => d.status === "queued" || d.status === "processing");
   useEffect(() => {
     if (!pending) return;
     const t = setInterval(load, 2000);
@@ -165,14 +166,21 @@ export default function DocumentsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {docs.length === 0 && (
+            {docs === null && !error && (
+              <tr>
+                <td colSpan={5} className="px-5 py-12 text-center text-fg-muted" data-testid="doc-loading">
+                  <span role="status">{t("common.loading")}</span>
+                </td>
+              </tr>
+            )}
+            {docs?.length === 0 && (
               <tr>
                 <td colSpan={5} data-testid="doc-empty">
                   <EmptyState icon={<IconDocuments size={22} />} title={t("docs.empty")} body={t("docs.emptyHint")} />
                 </td>
               </tr>
             )}
-            {docs.map((d) => (
+            {docs?.map((d) => (
               <tr key={d.id} data-testid="doc-row" data-doc-id={d.id} className="transition-colors hover:bg-muted/50">
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-3">

@@ -424,6 +424,29 @@ export default function AnalyticsPage() {
         </p>
       )}
 
+      {/* First load only (seconds on a cold start); a refetch keeps the previous render, dimmed, instead. */}
+      {!data && loading && (
+        <div role="status" className="mt-6" data-testid="analytics-loading">
+          <span className="sr-only">{t("common.loading")}</span>
+          <div aria-hidden className="motion-safe:animate-pulse">
+            <div className="card space-y-2.5 p-5">
+              <div className="h-3.5 w-28 rounded bg-muted" />
+              <div className="h-3 w-11/12 rounded bg-muted" />
+              <div className="h-3 w-8/12 rounded bg-muted" />
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="card p-5">
+                  <div className="h-3.5 w-32 rounded bg-muted" />
+                  <div className="mt-3 h-8 w-24 rounded bg-muted" />
+                  <div className="mt-6 h-[180px] rounded-control bg-muted" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {empty && (
         <section className="card mt-6" data-testid="analytics-empty">
           <EmptyState
