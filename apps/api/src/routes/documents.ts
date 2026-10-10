@@ -60,7 +60,7 @@ documentsRouter.post("/", requireRole("member"), sandboxWriteGuard, upload, asyn
   const doc = await withTx(async (tx) => {
     if (sandbox) {
       // Lock first, then count: parallel uploads to one sandbox are checked one after another.
-      await reserveSandboxWrite(tx, tenantId);
+      await reserveSandboxWrite(tx, tenantId, "document.uploaded");
       await assertDocumentBudget(tx, tenantId, size);
     }
     const {
@@ -102,7 +102,7 @@ documentsRouter.post("/:id/reindex", requireRole("admin"), sandboxWriteGuard, as
       );
       if (!found) throw new HttpError(404, "document not found");
       if (!found.reindexable) throw new HttpError(409, NOT_REINDEXABLE);
-      await reserveSandboxWrite(tx, tenantId);
+      await reserveSandboxWrite(tx, tenantId, "document.reindexed");
     }
     const {
       rows: [updated],

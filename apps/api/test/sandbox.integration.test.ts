@@ -7,7 +7,7 @@ import { pool } from "../src/lib/db.js";
 import { closeQueue } from "../src/lib/queue.js";
 import { closeRedis } from "../src/lib/redis.js";
 import { deleteExpiredSandboxes } from "../src/lib/sandbox.js";
-import { SANDBOX_WRITE_ACTIONS } from "../src/lib/sandboxLimits.js";
+import { SANDBOX_INDEXING_ACTIONS, SANDBOX_WRITE_ACTIONS } from "../src/lib/sandboxLimits.js";
 
 // Needs Postgres + Redis (CI provides both; queue mode hands the sample documents to a worker that is not
 // running here, so they stay queued). Skipped locally unless INTEGRATION=1.
@@ -275,23 +275,26 @@ run("sandbox workspaces (postgres)", () => {
     });
   });
 
-  it("caps the writes of all sandboxes together per hour, also when they arrive at once", async () => {
+  it("caps the uploads of all sandboxes together per hour, also when they arrive at once", async () => {
     const sandboxes = await Promise.all(Array.from({ length: 4 }, () => createSandbox()));
     const allWrites = () =>
       one(
         `SELECT count(*)::int AS n FROM tenants t JOIN audit_log a ON a.tenant_id = t.id
           WHERE t.expires_at IS NOT NULL AND a.action = ANY($1::text[]) AND a.created_at > now() - interval '1 hour'`,
-        [SANDBOX_WRITE_ACTIONS],
+        [SANDBOX_INDEXING_ACTIONS],
       );
-    const refused = "temporary workspaces have reached their uploads and imports for this hour, try again later";
+    const refused = "temporary workspaces have reached their document uploads for this hour, try again later";
 
-    // Room for two more writes: two sandboxes use them, a third is refused although it made none.
+    // Room for two more uploads: two sandboxes use them, a third is refused although it made none.
     await withSettings({ SANDBOX_GLOBAL_WRITE_RATE_LIMIT: (await allWrites()) + 2 }, async () => {
       await upload(sandboxes[0].auth, "first").expect(202);
-      await importCsv(sandboxes[1].auth, ["2020-01-01,Visitors,1"]).expect(201);
+      await upload(sandboxes[1].auth, "second").expect(202);
       const res = await upload(sandboxes[2].auth, "third").expect(503);
       expect(res.body.error).toBe(refused);
-      expect((await demoLoad(sandboxes[3].auth).expect(503)).body.error).toBe(refused);
+      // KPI writes index nothing, so they neither count nor wait for room.
+      await importCsv(sandboxes[3].auth, ["2020-01-01,Visitors,1"]).expect(201);
+      await demoLoad(sandboxes[3].auth).expect(201);
+      expect((await upload(sandboxes[3].auth, "fourth").expect(503)).body.error).toBe(refused);
     });
 
     // Four sandboxes at once with room for two: the advisory lock makes them take turns.

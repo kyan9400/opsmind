@@ -155,11 +155,12 @@ describe("sandbox write budgets (database)", () => {
     return { tx: { query } as unknown as pg.PoolClient, sql };
   }
 
-  it("refuses with 503 once all sandboxes together made SANDBOX_GLOBAL_WRITE_RATE_LIMIT writes this hour", async () => {
-    const { reserveSandboxWrite } = await load({ SANDBOX_WRITE_RATE_LIMIT: "20", SANDBOX_GLOBAL_WRITE_RATE_LIMIT: "30" });
+  it("refuses uploads (503) once all sandboxes together made SANDBOX_GLOBAL_WRITE_RATE_LIMIT this hour", async () => {
+    const limits = { SANDBOX_WRITE_RATE_LIMIT: "10", SANDBOX_GLOBAL_WRITE_RATE_LIMIT: "30" };
+    const { reserveSandboxWrite } = await load(limits);
 
     const room = fakeTx(0, 29);
-    await reserveSandboxWrite(room.tx, "sb1");
+    await reserveSandboxWrite(room.tx, "sb1", "document.uploaded");
     // Tenant row, its own count, then the advisory lock that makes the all-sandboxes count exact.
     expect(room.sql).toEqual([
       "SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE",
@@ -167,22 +168,34 @@ describe("sandbox write budgets (database)", () => {
       "SELECT pg_advisory_xact_lock($1)",
       expect.stringMatching(/JOIN audit_log a ON a\.tenant_id = t\.id WHERE t\.expires_at IS NOT NULL /),
     ]);
+    // Only the writes that index a document count there.
+    const countAll = room.tx.query as unknown as ReturnType<typeof vi.fn>;
+    expect(countAll.mock.calls[3][1]).toEqual([["document.uploaded", "document.reindexed"]]);
 
-    await expect(reserveSandboxWrite(fakeTx(0, 30).tx, "sb1")).rejects.toMatchObject({
-      status: 503,
-      message: "temporary workspaces have reached their uploads and imports for this hour, try again later",
-    });
+    const refused = "temporary workspaces have reached their document uploads for this hour, try again later";
+    for (const action of ["document.uploaded", "document.reindexed"] as const) {
+      await expect(reserveSandboxWrite(fakeTx(0, 30).tx, "sb1", action)).rejects.toMatchObject({
+        status: 503,
+        message: refused,
+      });
+    }
+    // A CSV import or a demo load indexes nothing: only the sandbox's own budget applies to it.
+    for (const action of ["metrics.imported", "metrics.demo_loaded"] as const) {
+      const full = fakeTx(0, 30);
+      await reserveSandboxWrite(full.tx, "sb1", action);
+      expect(full.sql.some((q) => /advisory|JOIN audit_log/.test(q))).toBe(false);
+    }
   });
 
   it("checks the sandbox's own budget first, and skips a budget set to 0", async () => {
     const limits = await load({ SANDBOX_WRITE_RATE_LIMIT: "2", SANDBOX_GLOBAL_WRITE_RATE_LIMIT: "30" });
     const own = fakeTx(2, 30);
-    await expect(limits.reserveSandboxWrite(own.tx, "sb1")).rejects.toMatchObject({ status: 429 });
+    await expect(limits.reserveSandboxWrite(own.tx, "sb1", "document.uploaded")).rejects.toMatchObject({ status: 429 });
     expect(own.sql.some((q) => /advisory/.test(q))).toBe(false);
 
     const off = await load({ SANDBOX_WRITE_RATE_LIMIT: "0", SANDBOX_GLOBAL_WRITE_RATE_LIMIT: "0" });
     const free = fakeTx(1000, 1000);
-    await off.reserveSandboxWrite(free.tx, "sb1");
+    await off.reserveSandboxWrite(free.tx, "sb1", "document.uploaded");
     // The tenant lock stays: the document and KPI budgets that follow rely on it.
     expect(free.sql).toEqual(["SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE"]);
   });
@@ -264,7 +277,7 @@ describe("sandbox settings", () => {
       SANDBOX_MAX_BYTES: MB,
       SANDBOX_MAX_FILE_BYTES: 512 * 1024,
       SANDBOX_MAX_CSV_ROWS: 5000,
-      SANDBOX_WRITE_RATE_LIMIT: 20,
+      SANDBOX_WRITE_RATE_LIMIT: 10,
       SANDBOX_GLOBAL_WRITE_RATE_LIMIT: 30,
       SANDBOX_DB_BRAKE_BYTES: 350 * MB,
     });

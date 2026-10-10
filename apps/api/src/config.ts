@@ -78,10 +78,12 @@ const Env = z
     // metrics = 1,080 of them). A cap per import alone would let repeated imports grow without bound.
     SANDBOX_MAX_CSV_ROWS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(5000)),
     // Uploads, re-indexes, CSV imports and demo loads per sandbox per hour; 0 disables. Counted in memory and
-    // again in the database (audit log), so the limit also holds across serverless instances.
-    SANDBOX_WRITE_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(20)),
-    // The same writes for all sandboxes together, per hour; 0 disables. One visitor can hold every live
-    // sandbox, and each write is an indexing run on the host's monthly CPU quota (4 h on Vercel Hobby).
+    // again in the database (audit log), so the limit also holds across serverless instances. A third of
+    // the budget below, so one sandbox cannot spend the uploads of all the others.
+    SANDBOX_WRITE_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(10)),
+    // Uploads and re-indexes of all sandboxes together, per hour; 0 disables. One visitor can hold several
+    // sandboxes, and each of these writes is an indexing run on the host's monthly CPU quota (4 h on Vercel
+    // Hobby).
     SANDBOX_GLOBAL_WRITE_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(30)),
     // Global brake: while the database is larger than this (pg_database_size), sandbox creation and sandbox
     // writes answer 503. It sits below Supabase Free's 500 MB, where the whole project turns read-only (the
