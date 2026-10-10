@@ -34,6 +34,10 @@
 
 ## Architecture
 
+The same code runs in two shapes, chosen by environment variables.
+
+**Docker Compose, Helm and Codespaces.** A BullMQ worker indexes uploads from a Redis queue. Redis also caches the AI insights, and the [observability overlay](#observability) adds Prometheus, Grafana and Jaeger.
+
 ```
           ┌──────────────┐        ┌───────────────────┐        ┌──────────────────┐
 browser → │  Next.js web │ ─────► │  Node.js API (TS) │ ─────► │ PostgreSQL       │
@@ -44,9 +48,31 @@ browser → │  Next.js web │ ─────► │  Node.js API (TS) │ �
                                   ┌───────────────────┐  /v1/ingest ┌──────┴────────────┐
                                   │ Worker (BullMQ)   │ ──────────► │ Python AI service │
                                   │ Redis queue       │             │ extract → chunk → │
-                                  └───────────────────┘   /v1/ask   │ embed → retrieve  │
-                                           API ───────────────────► │ → answer + cite   │
+                                  └───────────────────┘             │ embed → retrieve  │
+                                   API ── /v1/ask, /v1/insights ──► │ → answer + cite   │
+                                                                    └─────────┬─────────┘
+                                                                              │ optional
+                                                                              ▼
+                                                                    ┌───────────────────┐
+                                                                    │ LLM: OpenAI,      │
+                                                                    │ Anthropic, Ollama │
+                                                                    │ or any OpenAI-    │
+                                                                    │ compatible host   │
                                                                     └───────────────────┘
+```
+
+**The live demo (serverless profile).** Three Vercel projects in Frankfurt and a Supabase database, with no worker and no Redis. With `INGEST_MODE=inline` the API indexes an upload itself right after it answers (Vercel's `waitUntil`), with the same retries as the worker. The browser only talks to the web address, which passes `/api/*` on to the API. Once a day, Vercel Cron calls the API to move the demo KPIs to today, re-index any document that is not ready and delete expired sandboxes ([details](deploy/vercel/README.md#how-the-live-demo-differs-from-docker-compose)).
+
+```
+          ┌───────────────┐  /api/* proxy  ┌───────────────┐  pooled SQL   ┌─────────────┐
+browser → │ web (Next.js) │ ─────────────► │ api (Express) │ ────────────► │ Supabase    │
+          └───────────────┘                └───────┬───────┘               │ Postgres    │
+                                                   │ /v1/ingest (inline),  │ + pgvector  │
+                                                   │ /v1/ask, /v1/insights └─────────────┘
+                                                   ▼                              ▲
+                                           ┌───────────────┐    pooled SQL        │
+                                           │ ai (FastAPI)  │ ─────────────────────┘
+                                           └───────────────┘
 ```
 
 | Layer | Stack |
@@ -54,10 +80,10 @@ browser → │  Next.js web │ ─────► │  Node.js API (TS) │ �
 | Web | Next.js 15, React 19, TypeScript, Tailwind CSS 4 |
 | API | Node.js 22, Express 5, Zod, JWT, bcrypt, pino-http, express-rate-limit |
 | Data | PostgreSQL 16 + pgvector, Redis |
-| AI | Python 3.12, FastAPI, pgvector, pypdf; OpenAI / Anthropic / Ollama |
+| AI | Python 3.12, FastAPI, pgvector, pypdf; OpenAI / Anthropic / Ollama / any OpenAI-compatible host |
 | Queue & cache | Redis + BullMQ (retries with exponential backoff); versioned cache keys |
 | Reports | ExcelJS (typed cells, number formats), PDFKit (vector sparklines, DejaVu for Cyrillic/Arabic) |
-| Delivery | Docker, docker compose, GitHub Actions, Helm (tested on kind), Terraform, a Codespaces dev container |
+| Delivery | Docker, docker compose, GitHub Actions, Helm (tested on kind), Terraform, a Codespaces dev container, Vercel (serverless profile) |
 
 ## Design decisions
 
