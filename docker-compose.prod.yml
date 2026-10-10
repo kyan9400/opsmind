@@ -82,6 +82,7 @@ services:
     restart: unless-stopped
     environment:
       AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?set AI_SERVICE_TOKEN in .env}
+      API_DOCS: "false" # the base file turns them on for local development
     logging: *logging
     deploy:
       resources:

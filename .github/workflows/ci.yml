@@ -6,9 +6,12 @@ on:
   pull_request:
   workflow_dispatch: # manual "Run workflow" button in the Actions tab
 
+# A new push to a pull request cancels the run for its old head. Every main commit gets its own group and
+# always finishes: Deploy waits for it, and a shared group would still drop a queued run when a third
+# push arrives.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   api:
@@ -237,10 +240,11 @@ jobs:
             --set postgresql.enabled=false --set externalDatabase.url=postgres://u:p@db:5432/opsmind \
             --set redis.enabled=false --set externalRedis.url=redis://cache:6379
       - name: Build images
+        # api and web build from the repo root, so npm ci installs what package-lock.json pins.
         run: |
-          docker build -t opsmind-api:ci apps/api
+          docker build -t opsmind-api:ci -f apps/api/Dockerfile .
           docker build -t opsmind-ai:ci services/ai
-          docker build -t opsmind-web:ci --build-arg NEXT_PUBLIC_API_URL=http://localhost:4000 apps/web
+          docker build -t opsmind-web:ci --build-arg NEXT_PUBLIC_API_URL=http://localhost:4000 -f apps/web/Dockerfile .
       - uses: helm/kind-action@v1
         with:
           cluster_name: opsmind
@@ -618,8 +622,9 @@ jobs:
           status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
           json='content-type: application/json'
           curl -fsS -X POST "$API/api/v1/sandbox" > "$RUNNER_TEMP/sandbox.json"
-          # 24 hours from now (jq's date parser does not take milliseconds).
-          jq -e '(.token | length) > 20 and (.expiresAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) > (now + 23.9 * 3600)' \
+          # 3 hours from now, the SANDBOX_TTL_HOURS default (jq's date parser does not take milliseconds).
+          jq -e '(.expiresAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) as $t
+            | (.token | length) > 20 and $t > (now + 2.9 * 3600) and $t < (now + 3.1 * 3600)' \
             "$RUNNER_TEMP/sandbox.json"
           AUTH="authorization: Bearer $(jq -r .token "$RUNNER_TEMP/sandbox.json")"
           curl -fsS "$API/api/v1/auth/me" -H "$AUTH" > "$RUNNER_TEMP/sandbox-me.json"

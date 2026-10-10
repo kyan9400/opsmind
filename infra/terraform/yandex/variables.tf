@@ -223,13 +223,47 @@ variable "embed_provider" {
 }
 
 variable "llm_provider" {
-  description = "Answer provider: extractive (offline), openai, anthropic or ollama."
+  description = "Answer provider: extractive (offline), openai, anthropic, ollama or openai-compatible (any /chat/completions host; set llm_base_url and llm_model)."
   type        = string
   default     = "extractive"
 
   validation {
-    condition     = contains(["extractive", "openai", "anthropic", "ollama"], var.llm_provider)
-    error_message = "llm_provider must be extractive, openai, anthropic or ollama."
+    condition     = contains(["extractive", "openai", "anthropic", "ollama", "openai-compatible"], var.llm_provider)
+    error_message = "llm_provider must be extractive, openai, anthropic, ollama or openai-compatible."
+  }
+}
+
+variable "llm_base_url" {
+  description = "API base URL for llm_provider openai-compatible, e.g. https://api.groq.com/openai/v1."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.llm_base_url == "" || can(regex("^https?://[^\\s'\"]+$", var.llm_base_url))
+    error_message = "llm_base_url must be an http(s) URL without quotes or spaces."
+  }
+}
+
+variable "llm_model" {
+  description = "Model name for llm_provider openai-compatible, e.g. llama-3.3-70b-versatile."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9@/:._-]*$", var.llm_model))
+    error_message = "llm_model contains unexpected characters."
+  }
+}
+
+variable "llm_api_key" {
+  description = "API key for llm_provider openai-compatible (empty for hosts that need none, e.g. a private vLLM)."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_.~+/=-]*$", var.llm_api_key))
+    error_message = "llm_api_key contains unexpected characters."
   }
 }
 

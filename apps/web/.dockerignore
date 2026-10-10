@@ -1,8 +1,0 @@
-# The image runs its own npm install and next build; local installs and build output must not leak in.
-node_modules
-.next
-*.tsbuildinfo
-npm-debug.log*
-# The static interactive preview (fixtures and export) is not part of the server image.
-preview-data
-out

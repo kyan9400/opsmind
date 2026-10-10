@@ -88,8 +88,9 @@ spec:
             - name: tmp
               mountPath: /tmp
             # Next.js writes its image/fetch cache here at runtime; everything else under /app is read-only.
+            # The standalone build mirrors the monorepo, so the app lives in /app/apps/web.
             - name: next-cache
-              mountPath: /app/.next/cache
+              mountPath: /app/apps/web/.next/cache
       volumes:
         - name: tmp
           emptyDir:

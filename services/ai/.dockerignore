@@ -1,0 +1,5 @@
+# The image copies only requirements.txt and app/; keep a local venv and caches out of the build context.
+*
+!requirements.txt
+!app
+**/__pycache__
