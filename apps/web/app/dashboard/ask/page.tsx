@@ -284,7 +284,9 @@ function TurnView({
           <LogoMark size={24} />
           <span className="text-sm font-semibold text-fg">{t("ask.answer")}</span>
           <span className="ms-auto flex flex-wrap items-center gap-1.5">
-            <span className="badge badge-neutral">{result.provider}</span>
+            {/* The preview's provider note is a whole sentence in Russian and Arabic: let it wrap rather than
+                push the page sideways on a phone. A radius of half the one-line height keeps the pill shape. */}
+            <span className="badge badge-neutral max-w-full rounded-[0.625rem] whitespace-normal">{result.provider}</span>
             <span className="badge badge-neutral tabular-nums">{t("ask.ms", { ms: result.ms })}</span>
             <CopyButton text={result.answer} />
           </span>
@@ -327,8 +329,10 @@ function TurnView({
                 key={c.n}
                 id={`source-${turn.id}-${c.n}`}
                 data-testid={latest ? "ask-source" : undefined}
-                className={`scroll-mt-32 rounded-card border bg-surface p-4 text-sm shadow-card transition-shadow target:ring-2 target:ring-ring ${
-                  c.cited ? "border-brand-line" : "border-line opacity-75"
+                // Uncited sources step back by lying flat on the page (no surface, no shadow), not by fading:
+                // at 75% opacity their small grey text fell under 4.5:1.
+                className={`scroll-mt-32 rounded-card border p-4 text-sm transition-shadow target:ring-2 target:ring-ring ${
+                  c.cited ? "border-brand-line bg-surface shadow-card" : "border-line bg-canvas"
                 }`}
               >
                 <div className="flex items-start gap-3">

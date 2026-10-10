@@ -145,7 +145,7 @@ const SAMPLE_CSV = `date,metric,value
 2026-09-02,Revenue,13150`;
 
 export default function AnalyticsPage() {
-  const { t, locale } = useI18n();
+  const { t, locale, dir } = useI18n();
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [days, setDays] = useState<number>(30);
@@ -261,6 +261,30 @@ export default function AnalyticsPage() {
       await Promise.all([loadDashboard(), loadInsights()]);
     });
 
+  function selectRange(r: number) {
+    setDays(r);
+    setShowAll(false);
+  }
+
+  // The ARIA radio pattern screen readers announce ("1 of 4"): one tab stop, and the arrow keys move the
+  // choice. Left/Right follow the reading direction, so they swap in Arabic; Home/End jump to the ends.
+  function onRangeKey(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return; // Alt+Left is the browser's Back
+    const last = RANGES.length - 1;
+    const i = Math.max(0, RANGES.indexOf(days as (typeof RANGES)[number]));
+    const forward = dir === "rtl" ? "ArrowLeft" : "ArrowRight";
+    const back = dir === "rtl" ? "ArrowRight" : "ArrowLeft";
+    let next: number;
+    if (e.key === forward || e.key === "ArrowDown") next = i === last ? 0 : i + 1;
+    else if (e.key === back || e.key === "ArrowUp") next = i === 0 ? last : i - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    else return;
+    e.preventDefault();
+    selectRange(RANGES[next]);
+    e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
+  }
+
   const exportAs = (format: "xlsx" | "pdf") =>
     runAction(format, () =>
       download(`/metrics/export?format=${format}&days=${days}&bucket=${bucket}`, `opsmind-kpis.${format}`),
@@ -323,11 +347,14 @@ export default function AnalyticsPage() {
 
       {/* One toolbar above everything it scopes: view controls at the start, exports at the end. */}
       <div className="card mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 p-2">
+        {/* Narrower segments below sm, so all four fit a 360 px phone in every language; wrapping is the
+            fallback for anything smaller, rather than pushing the page sideways. */}
         <div
           role="radiogroup"
           aria-label={t("analytics.rangeLabel")}
           data-testid="analytics-range"
-          className="segmented"
+          onKeyDown={onRangeKey}
+          className="segmented flex-wrap"
         >
           {RANGES.map((r) => (
             <button
@@ -335,12 +362,10 @@ export default function AnalyticsPage() {
               type="button"
               role="radio"
               aria-checked={days === r}
+              tabIndex={days === r ? 0 : -1}
               data-testid={`analytics-range-${r}`}
-              onClick={() => {
-                setDays(r);
-                setShowAll(false);
-              }}
-              className="segment"
+              onClick={() => selectRange(r)}
+              className="segment px-2.5 sm:px-3"
             >
               {t("analytics.range", { count: r })}
             </button>
@@ -424,6 +449,29 @@ export default function AnalyticsPage() {
         </p>
       )}
 
+      {/* First load only (seconds on a cold start); a refetch keeps the previous render, dimmed, instead. */}
+      {!data && loading && (
+        <div role="status" className="mt-6" data-testid="analytics-loading">
+          <span className="sr-only">{t("common.loading")}</span>
+          <div aria-hidden className="motion-safe:animate-pulse">
+            <div className="card space-y-2.5 p-5">
+              <div className="h-3.5 w-28 rounded bg-muted" />
+              <div className="h-3 w-11/12 rounded bg-muted" />
+              <div className="h-3 w-8/12 rounded bg-muted" />
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="card p-5">
+                  <div className="h-3.5 w-32 rounded bg-muted" />
+                  <div className="mt-3 h-8 w-24 rounded bg-muted" />
+                  <div className="mt-6 h-[180px] rounded-control bg-muted" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {empty && (
         <section className="card mt-6" data-testid="analytics-empty">
           <EmptyState
@@ -471,7 +519,7 @@ export default function AnalyticsPage() {
               {anomalies.length > 0 && <span className="badge badge-brand tabular-nums">{anomalies.length}</span>}
               {/* The previous range's insights stay visible (dimmed) while the new range is analysed. */}
               {insightsState === "loading" && insights && (
-                <span className="text-xs text-fg-subtle">{t("analytics.updating")}</span>
+                <span className="text-xs text-fg-muted">{t("analytics.updating")}</span>
               )}
             </div>
             <div className="px-5 pt-2 pb-4">
