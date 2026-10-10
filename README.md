@@ -5,13 +5,15 @@
 
 **A multi-tenant operations and knowledge platform for small businesses: cited AI answers from company documents, KPI dashboards that flag anomalies, and the CI/CD, Kubernetes and observability to run it.**
 
-![Demo tour: sign in to the demo, inspect an anomaly on the analytics dashboard, get a cited answer, switch to Arabic (right-to-left) and back](docs/demo.gif)
+**Live demo:** **[opsmind-demo.vercel.app](https://opsmind-demo.vercel.app)**. Click **Try the live demo** to sign in as a read-only viewer. It is the real stack running serverless: Next.js, the Express API and the Python AI service on Vercel, and Postgres + pgvector on Supabase ([setup](deploy/vercel/README.md)). The daily [live check](.github/workflows/live-check.yml) tests it from outside. Some networks in Russia block `*.vercel.app`; the preview below opens there.
 
-**Live demo:** **[opsmind-demo.vercel.app](https://opsmind-demo.vercel.app)**. Click **Try the live demo** to sign in as a read-only viewer. It is the real stack running serverless: Next.js and the Express API on Vercel, the Python AI service on Vercel, and Postgres + pgvector on Supabase ([setup](deploy/vercel/README.md)). It is checked daily by the [live check](.github/workflows/live-check.yml). Some networks in Russia block `*.vercel.app`; if it does not open, use the preview below. Where a deployment turns sandboxes on, **Try it with your own data** opens a private 24-hour workspace instead, for your own files ([details](#try-it-with-your-own-data)).
-
-**Interactive preview:** [hass-ak.sourcecraft.site/opsmind](https://hass-ak.sourcecraft.site/opsmind/). It opens instantly with recorded demo data and no server, and it is clearly labelled as a preview ([how it works](deploy/sourcecraft/README.md)).
+**Interactive preview:** [hass-ak.sourcecraft.site/opsmind](https://hass-ak.sourcecraft.site/opsmind/). It opens instantly with recorded demo data and no server, and it is clearly labelled as a preview ([how it works](deploy/sourcecraft/README.md#how-it-works)).
 
 **Try the full system:** open the repo in [GitHub Codespaces](https://codespaces.new/kyan9400/opsmind?quickstart=1) and sign in with **Try the live demo** or `demo@opsmind.dev` / `opsmind-demo` (a read-only viewer). The first start builds the images and takes a few minutes, on your own free Codespaces quota ([details](.devcontainer/README.md)). Or [run it locally](#run-it-locally) with Docker.
+
+A portfolio project by [Alhassan Alfarran](https://alhassan-portfolio-sigma.vercel.app/), Software & DevOps Engineer.
+
+![Demo tour: sign in to the demo, inspect an anomaly on the analytics dashboard, get a cited answer, switch to Arabic (right-to-left) and back](docs/demo.gif)
 
 **Measured in CI:**
 
@@ -22,7 +24,7 @@
 
 > All five milestones are done: multi-tenant foundation, RAG, KPI analytics, operations, and polish (three languages, browser tests, measured retrieval quality, demo workspace). See the [roadmap](#roadmap).
 
-![Analytics: KPI dashboard with detected incidents and AI summary](docs/screenshots/analytics.png)
+![Analytics: detected incidents above the KPI charts, with the anomalous days marked on each chart](docs/screenshots/analytics.png)
 
 | Cited answers from your documents | Documents and indexing status |
 |---|---|
@@ -34,6 +36,10 @@
 
 ## Architecture
 
+The same code runs in two shapes, chosen by environment variables.
+
+**Docker Compose, Helm and Codespaces.** A BullMQ worker indexes uploads from a Redis queue. Redis also caches the AI insights, and the [observability overlay](#observability) adds Prometheus, Grafana and Jaeger.
+
 ```
           ┌──────────────┐        ┌───────────────────┐        ┌──────────────────┐
 browser → │  Next.js web │ ─────► │  Node.js API (TS) │ ─────► │ PostgreSQL       │
@@ -44,9 +50,31 @@ browser → │  Next.js web │ ─────► │  Node.js API (TS) │ �
                                   ┌───────────────────┐  /v1/ingest ┌──────┴────────────┐
                                   │ Worker (BullMQ)   │ ──────────► │ Python AI service │
                                   │ Redis queue       │             │ extract → chunk → │
-                                  └───────────────────┘   /v1/ask   │ embed → retrieve  │
-                                           API ───────────────────► │ → answer + cite   │
+                                  └───────────────────┘             │ embed → retrieve  │
+                                   API ── /v1/ask, /v1/insights ──► │ → answer + cite   │
+                                                                    └─────────┬─────────┘
+                                                                              │ optional
+                                                                              ▼
+                                                                    ┌───────────────────┐
+                                                                    │ LLM: OpenAI,      │
+                                                                    │ Anthropic, Ollama │
+                                                                    │ or any OpenAI-    │
+                                                                    │ compatible host   │
                                                                     └───────────────────┘
+```
+
+**The live demo (serverless profile).** Three Vercel projects in Frankfurt and a Supabase database, with no worker and no Redis. With `INGEST_MODE=inline` the API indexes an upload itself right after it answers (Vercel's `waitUntil`), with the same retries as the worker. The browser only talks to the web address, which passes `/api/*` on to the API. Once a day, Vercel Cron calls the API to move the demo KPIs to today, re-index any document that is not ready and delete expired sandboxes ([details](deploy/vercel/README.md#how-the-live-demo-differs-from-docker-compose)).
+
+```
+          ┌───────────────┐  /api/* proxy  ┌───────────────┐  pooled SQL   ┌─────────────┐
+browser → │ web (Next.js) │ ─────────────► │ api (Express) │ ────────────► │ Supabase    │
+          └───────────────┘                └───────┬───────┘               │ Postgres    │
+                                                   │ /v1/ingest (inline),  │ + pgvector  │
+                                                   │ /v1/ask, /v1/insights └─────────────┘
+                                                   ▼                              ▲
+                                           ┌───────────────┐    pooled SQL        │
+                                           │ ai (FastAPI)  │ ─────────────────────┘
+                                           └───────────────┘
 ```
 
 | Layer | Stack |
@@ -54,10 +82,10 @@ browser → │  Next.js web │ ─────► │  Node.js API (TS) │ �
 | Web | Next.js 15, React 19, TypeScript, Tailwind CSS 4 |
 | API | Node.js 22, Express 5, Zod, JWT, bcrypt, pino-http, express-rate-limit |
 | Data | PostgreSQL 16 + pgvector, Redis |
-| AI | Python 3.12, FastAPI, pgvector, pypdf; OpenAI / Anthropic / Ollama |
+| AI | Python 3.12, FastAPI, pgvector, pypdf; OpenAI / Anthropic / Ollama / any OpenAI-compatible host |
 | Queue & cache | Redis + BullMQ (retries with exponential backoff); versioned cache keys |
 | Reports | ExcelJS (typed cells, number formats), PDFKit (vector sparklines, DejaVu for Cyrillic/Arabic) |
-| Delivery | Docker, docker compose, GitHub Actions, Helm (tested on kind), Terraform, a Codespaces dev container |
+| Delivery | Docker, docker compose, GitHub Actions, Helm (tested on kind), Terraform, a Codespaces dev container, Vercel (serverless profile) |
 
 ## Design decisions
 
@@ -67,7 +95,7 @@ browser → │  Next.js web │ ─────► │  Node.js API (TS) │ �
 - **An AI budget per visitor.** Questions, insights and report exports call the AI service, so they share one rate limit: 20 requests per minute per user and client IP, under an account-wide ceiling of 10× that across all IPs (`AI_RATE_LIMIT`, 0 disables). Every visitor on the shared demo login gets their own budget, and one account cannot pull unlimited LLM calls through many addresses. Login and registration allow 20 attempts per IP per 15 minutes (`AUTH_RATE_LIMIT`). Behind a proxy, both limits need `TRUST_PROXY` to see real client IPs; the production compose file sets it, and so does the Helm chart when its ingress is enabled. The counters live in memory, per API replica.
 - **Login does not reveal which accounts exist.** An unknown email and a wrong password get the same error after exactly one bcrypt compare, so the timing matches too. Registration still answers 409 for a taken email; hiding that as well needs email verification.
 - **Append-only audit log** with a `(tenant_id, created_at DESC)` index and keyset pagination, so the "recent activity" query stays O(limit) as the table grows.
-- **Production-shaped from day one.** Multi-stage non-root images, health and readiness endpoints, graceful shutdown for rolling deploys, and migrations run on startup.
+- **Operational basics.** Multi-stage non-root images, health and readiness endpoints, graceful shutdown for rolling deploys, and migrations run on startup.
 
 ## How the RAG pipeline works
 
@@ -89,7 +117,7 @@ browser → │  Next.js web │ ─────► │  Node.js API (TS) │ �
 | Embeddings (`EMBED_PROVIDER`) | `hash`: deterministic feature hashing, lexical only | `openai` (`text-embedding-3-small`, 768-d) | `ollama` (`nomic-embed-text`) |
 | Answers (`LLM_PROVIDER`) | `extractive`: best-matching source sentences, cited | `openai`, `anthropic`, `openai-compatible` (any `/chat/completions` endpoint: Groq, OpenRouter, Cloudflare Workers AI, vLLM…) | `ollama` (`llama3.1`) |
 
-The offline defaults need no API keys, so CI and a fresh `docker compose up` work out of the box. An LLM is optional and set per deployment: `openai-compatible` takes `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` and optional `LLM_TIMEOUT_S` / `LLM_MAX_TOKENS` ([free-tier setup for the Vercel demo](deploy/vercel/README.md#optional-real-llm-answers-free-tier-for-example-groq)). Switch to a real model for semantic quality:
+The offline defaults need no API keys, so CI and a fresh `docker compose up` work out of the box. An LLM is optional and set per deployment. Switch to a real model for semantic quality:
 
 ```bash
 # Fully local, private: nothing leaves the machine
@@ -102,13 +130,17 @@ OLLAMA_URL=http://ollama:11434 EMBED_PROVIDER=ollama LLM_PROVIDER=ollama docker 
 
 > Changing `EMBED_PROVIDER` changes the vector space, so reindex existing documents afterwards (`POST /api/v1/documents/:id/reindex`).
 
-`LLM_PROVIDER=openai-compatible` works with any `/chat/completions` host (Groq, OpenRouter, Cloudflare Workers AI, vLLM); `LLM_EXTRA_BODY` adds host-specific JSON to each request, for example `{"chat_template_kwargs":{"enable_thinking":false}}` to turn off Gemma 4's thinking on Cloudflare. Thinking a model writes into its reply is removed, and a reply that is empty or cut off at `LLM_MAX_TOKENS` before citing a source falls back to the extractive answer. In extractive mode a follow-up is answered from its own words ("and for damaged items?" → the damaged-items sentence); the previous question is added only when the follow-up's own words match nothing ("why is that?", "как долго?", "لماذا؟").
+`LLM_PROVIDER=openai-compatible` works with any `/chat/completions` host (Groq, OpenRouter, Cloudflare Workers AI, vLLM). It takes `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`, plus optional `LLM_TIMEOUT_S`, `LLM_MAX_TOKENS` and `LLM_EXTRA_BODY`. The same `LLM_*` settings work on every profile: on the Vercel ai project ([free-tier setup](deploy/vercel/README.md#optional-real-llm-answers-free-tier-for-example-groq)), in `.env` for Docker Compose, which passes them to the ai container, through the Terraform module on the VM, and in the Helm chart's `ai.extraEnv`. `LLM_EXTRA_BODY` adds host-specific JSON to each request, for example `{"chat_template_kwargs":{"enable_thinking":false}}` to turn off Gemma 4's thinking on Cloudflare. Thinking a model writes into its reply is removed, and a reply that is empty or cut off at `LLM_MAX_TOKENS` before citing a source falls back to the extractive answer.
+
+`LLM_DAILY_MAX` (default 300) caps model calls per day for the whole deployment. The count is kept in Postgres (table `llm_usage`), so it holds across instances and a free daily quota lasts. Above it, answers fall back to the extractive one and summaries to the template until the next day, and the response names the fallback provider instead of failing.
+
+In extractive mode a follow-up is answered from its own words ("and for damaged items?" → the damaged-items sentence); the previous question is added only when the follow-up's own words match nothing ("why is that?", "как долго?", "لماذا؟").
 
 ### Retrieval quality
 
-Hybrid search is measured, not assumed. [`services/ai/eval`](services/ai/eval/README.md) contains 12 company policies (English, Russian, Arabic) and 56 labelled questions: exact codes and IDs, natural questions, paraphrases, and cross-language questions. Every CI run (`rag-eval` job) indexes them through the real `/v1/ingest` path and asks each question with vector-only, full-text-only and hybrid (RRF) retrieval. It reports Recall@1/3/5 and MRR by question kind and language, and fails if hybrid Recall@5 drops below 0.8.
+[`services/ai/eval`](services/ai/eval/README.md) contains 12 company policies (English, Russian, Arabic) and 56 labelled questions: exact codes and IDs, natural questions, paraphrases, and cross-language questions. Every CI run (`rag-eval` job) indexes them through the real `/v1/ingest` path and asks each question with vector-only, full-text-only and hybrid (RRF) retrieval. It reports Recall@1/3/5 and MRR by question kind and language, and fails if hybrid Recall@5 drops below 0.8.
 
-The evaluation already paid for itself. It showed that `websearch_to_tsquery` ANDs every word, so the full-text leg matched almost no natural-language question. Full text now ORs the question's content words and lets `ts_rank_cd` rank the chunks.
+The evaluation found a real problem: `websearch_to_tsquery` ANDs every word, so the full-text leg matched almost no natural-language question. Full text now ORs the question's content words and lets `ts_rank_cd` rank the chunks.
 
 | Mode | Recall@1 | Recall@3 | Recall@5 | MRR@10 |
 |---|---:|---:|---:|---:|
@@ -149,9 +181,14 @@ Businesses bring their numbers as a **CSV in long format** (`date,metric,value`)
 | 25% drop detected | 99.9% (14,991 / 15,000) |
 | 30% drop detected | 100% |
 | Sparse 0/1 counts (P(1) = 25%) | 2.2 alerts per 30 days (9.5 without the mean-absolute-deviation fallback) |
-| Demo data, 30 / 90 / 180-day views | The injected incidents are always found (5 / 6 / 6). The 30-day view never shows extra alerts. When the demo is loaded on a Tuesday or Friday, the 90-day view shows one extra medium alert and the 180-day view one or two; on a Monday only the 180-day view shows one. All are in the good direction. |
+| Demo data, 30 / 90 / 180-day views | The injected incidents are always found (5 / 6 / 6). The 30-day view never shows extra alerts. Depending on the weekday the demo is loaded, the 90- and 180-day views can show one or two extra medium alerts, all in the good direction. |
 
 The charts follow a documented data-viz spec: one metric per chart (never two y-axes), 2px lines with a 10% area wash, hairline grid, a crosshair tooltip that snaps to dates and works with arrow keys, status-coloured anomaly markers (always paired with an icon and label, never colour alone), a table view for every chart, and a validated palette with separate light and dark steps.
+
+## Chat and languages
+
+- **Ask is a conversation.** Follow-up questions are sent with the last 4 turns as `history` (2,000 characters per field), so "and for express?" is understood, and the rewritten search query is shown under the answer. The conversation stays for the browser tab (sessionStorage), and there are **New chat** and copy buttons. Answers appear word by word (instantly with reduced motion), and the page scrolls to the start of the new answer. Screen readers hear the whole answer once, through a polite live region, never the half-typed text.
+- **The UI in English, Russian and Arabic.** Arabic uses a full right-to-left layout. The language is rendered on the server, so the first paint is already correct.
 
 ## Operations
 
@@ -214,9 +251,11 @@ helm upgrade --install opsmind deploy/helm/opsmind -n opsmind --create-namespace
 
 That run had 0 errors. It used the offline providers (hash embeddings, extractive answers), so `ask` measures retrieval and the API, not an LLM. Shared CI runners are noisy: the `ask` p95 has ranged from about 8 to 70 ms across runs, still far inside its budget. The CI `load` job fails if any budget or the 1% error budget is exceeded, and publishes a p50/p95/p99 table in the run summary. It runs with `AI_RATE_LIMIT=0`, because every k6 request uses one token from one IP.
 
-### Deployment (optional)
+### Deployment
 
-There is no permanently hosted instance; the [Codespaces demo](.devcontainer/README.md) covers trying it. The Terraform module and the deploy workflow are ready if you want to run your own server.
+The live demo runs the **serverless profile** on Vercel and Supabase ([diagram](#architecture), [setup guide](deploy/vercel/README.md)). Vercel's Git integration redeploys its three projects on every push to `main`. The CI `serverless` job tests that profile on every pull request, and the daily [live check](.github/workflows/live-check.yml) tests the running demo from outside.
+
+The **self-hosted path** below is ready but not running anywhere. CI validates it on every run (Terraform fmt/validate, the production compose file, the Caddyfile), and the deploy workflow skips itself until its secrets are set.
 
 The target is one Ubuntu VM running the same images with Docker Compose. [Caddy](https://caddyserver.com) is the only public entrypoint, with automatic Let's Encrypt HTTPS, security headers (HSTS, CSP) and HTTP/3. Postgres, Redis, the AI service and `/metrics` are never exposed.
 
@@ -233,7 +272,7 @@ export YC_TOKEN=$(yc iam create-token)
 terraform init && terraform apply              # prints app_url, e.g. https://203-0-113-7.sslip.io
 ```
 
-Terraform creates the secrets, and they are never stored in git. Deploys only ship commits that passed CI and wait for `/ready`. The compose part runs on any Ubuntu 22.04/24.04 VPS. Full guide: [infra/README.md](infra/README.md).
+Terraform creates the secrets, and they are never stored in git. The deploy workflow only ships commits that passed CI, and waits for `/ready`. The compose part runs on any Ubuntu 22.04/24.04 VPS. Full guide: [infra/README.md](infra/README.md).
 
 ## Run it locally
 
@@ -244,7 +283,7 @@ docker compose up --build
 
 - Web: http://localhost:3000
 - API: http://localhost:4000/health
-- AI service: http://localhost:8000/docs (interactive docs; the `/v1/*` routes need the `x-internal-token` header, and the service is never exposed in production)
+- AI service: http://localhost:8000/health. Its interactive API docs (`/docs`, `/openapi.json`) are served only with `API_DOCS=true`. The `/v1/*` routes need the `x-internal-token` header (`AI_SERVICE_TOKEN`). Behind Caddy on the VM the service is not reachable from outside. On the serverless profile it is its own public Vercel function, so that token is what protects `/v1/*`, and the docs stay off.
 
 The quickest way to a populated workspace is `bash .devcontainer/start.sh`: it starts the same stack, seeds the [demo workspace](#demo-workspace) and prints the login.
 
@@ -268,9 +307,10 @@ cd services/ai && uvicorn app.main:app --reload --port 8000             # AI ser
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| POST | `/api/v1/auth/register` | public | Create a tenant and its owner |
+| POST | `/api/v1/auth/register` | public | Create a tenant and its owner (403 with `ALLOW_REGISTRATION=false`) |
 | POST | `/api/v1/auth/login` | public | Get a JWT |
 | POST | `/api/v1/sandbox` | public | Create a temporary sandbox workspace (only with `ALLOW_SANDBOX=true`) |
+| DELETE | `/api/v1/sandbox` | sandbox owner | Delete the caller's sandbox and all its data now; returns 204 |
 | GET | `/api/v1/auth/me` | any | Current user and tenant (`expiresAt` is set for a sandbox) |
 | GET | `/api/v1/users` | viewer+ | List tenant users |
 | POST | `/api/v1/users` | admin+ | Add a user (lower role only) |
@@ -291,11 +331,11 @@ cd services/ai && uvicorn app.main:app --reload --port 8000             # AI ser
 | PATCH | `/api/v1/metrics/:id` | admin+ | Name, unit, total/average, good direction |
 | DELETE | `/api/v1/metrics/:id` | admin+ | Delete a metric and its data |
 
-Every route except register, login and sandbox needs a bearer token, and the role is checked against the database on each request. Routes marked *AI budget* share the per-visitor AI rate limit and answer 429 when it runs out. Register and login share the per-IP credential limit. Emails on the reserved `.invalid` domain cannot be registered or added as users.
+Every route except register, login and `POST /sandbox` needs a bearer token, and the role is checked against the database on each request. Routes marked *AI budget* share the per-visitor AI rate limit and answer 429 when it runs out. Register and login share the per-IP credential limit. Emails on the reserved `.invalid` domain cannot be registered or added as users.
 
 ## Demo workspace
 
-A read-only demo workspace ("Northwind Supply") has 180 days of KPIs with real incidents to find, and four company policies to ask questions about. The one-click way to see it is the **Open in GitHub Codespaces** badge at the top ([how it works](.devcontainer/README.md)). To seed it into a stack you are already running:
+A read-only demo workspace ("Northwind Supply") has 180 days of KPIs with real incidents to find, and four company policies to ask questions about. The one-click way to see it is **Try the live demo** on [opsmind-demo.vercel.app](https://opsmind-demo.vercel.app). The **Open in GitHub Codespaces** badge at the top runs the full stack with the same workspace ([how it works](.devcontainer/README.md)). To seed it into a stack you are already running:
 
 ```bash
 docker compose exec -e DEMO_EMAIL=demo@opsmind.dev -e DEMO_PASSWORD='choose-one' api node dist/seedDemo.js
@@ -303,22 +343,34 @@ docker compose exec -e DEMO_EMAIL=demo@opsmind.dev -e DEMO_PASSWORD='choose-one'
 
 - Visitors log in as **viewers**. They can explore dashboards, ask the AI and download reports, but cannot upload, import or change anything; CI checks this.
 - Build the web image with `NEXT_PUBLIC_DEMO_EMAIL` / `NEXT_PUBLIC_DEMO_PASSWORD` to show a one-click **Try the live demo** button (the Codespaces overlay does this).
+- A public demo usually closes sign-up: `ALLOW_REGISTRATION=false` makes the API refuse it, and `NEXT_PUBLIC_REGISTRATION=false` for the web build hides the sign-up links and form. The live demo sets both.
 - The seed is safe to re-run. It reuses `DEMO_EMAIL` only if the workspace was created by the seed itself: the name matches `DEMO_TENANT_NAME` (default "Northwind Supply (demo)"), and its hidden owner and the viewer were created in the same transaction as the workspace. Otherwise it exits non-zero without changing anything, so it can never publish someone's real account.
 - Each run resets the viewer's password and role, gives the hidden owner a new random password nobody knows, and removes every other account in the workspace (`removedUsers` in its output).
 
 ## Try it with your own data
 
-The demo workspace is read-only and shared. **Try it with your own data** (landing and login pages) gives a visitor a private **sandbox workspace** instead: the same 180 days of KPIs and four sample documents, but the visitor is its owner, so they can upload their own files, import a CSV and ask about them. Access ends after 24 hours (every dashboard page says how long it has left), and the data is deleted soon after, at the latest about a day later.
+The demo workspace is read-only and shared. **Try it with your own data** (landing and login pages) gives a visitor a private **sandbox workspace** instead: the same 180 days of KPIs and four sample documents, but the visitor is its owner, so they can upload their own files, import a CSV and ask about them. Access ends after 3 hours (`SANDBOX_TTL_HOURS`), and every dashboard page says how long is left.
 
-- `POST /api/v1/sandbox` creates the workspace, an owner with an unguessable `@sandbox.invalid` address and a random password nobody knows, and returns `{ token, expiresAt }`. The token is the only way in.
+- `POST /api/v1/sandbox` creates the workspace, an owner with an unguessable `@sandbox.invalid` address and a random password nobody knows, and returns `{ token, expiresAt }`. The token is the only way in. Clicking the button again while that sandbox is live goes back to it instead of creating another.
 - It answers right away; the sample documents are indexed in the background (the worker, or the API process with `INGEST_MODE=inline`), and the Documents page shows them becoming ready. Waiting would put a cold AI service and its retries inside the 300-second Vercel limit for nothing.
-- Abuse limits: `SANDBOX_RATE_LIMIT` creations per IP per hour (default 3) and at most `SANDBOX_MAX_ACTIVE` live sandboxes (default 20, because the per-IP counter is per instance on serverless hosts). Each sandbox holds at most `SANDBOX_MAX_DOCUMENTS` documents (default 10, samples included), `SANDBOX_MAX_BYTES` of files (default 1 MB) with `SANDBOX_MAX_FILE_BYTES` per file (default 512 KB, documents and CSVs) and `SANDBOX_MAX_CSV_ROWS` KPI points over all imports (default 5,000, the 1,080 sample points included). These are checked in the write's transaction under a lock on the tenant row, so parallel requests cannot slip past them. Uploads, re-indexes, CSV imports and demo loads share `SANDBOX_WRITE_RATE_LIMIT` per sandbox per hour (default 20; counted in memory and again in the audit log, so it holds across serverless instances), and a sandbox can only re-index a failed or stuck document (409 otherwise). While the database is larger than `SANDBOX_DB_BRAKE_BYTES` (default 350 MB, checked once a minute per instance), sandbox creation and sandbox writes answer 503, so sandboxes stop growing long before a 500 MB free database fills up and turns read-only. The usual AI budget applies too. A sandbox cannot add users or change roles (403).
-- Expiry: `tenants.expires_at` (migration `004`, empty for normal workspaces). From that moment its token gets 401 `sandbox expired`. The next sandbox creation deletes up to 10 expired sandboxes (oldest first), and the daily cron (`/api/internal/cron/seed`) deletes the rest, so the data is gone at the latest about a day after expiry; everything in a sandbox goes with the tenant (`ON DELETE CASCADE`).
+- Signing out of a sandbox, or switching to the live demo, asks first and then deletes the sandbox with its uploads (`DELETE /api/v1/sandbox`). Only the sandbox's owner can do this; anyone else gets 403.
+- Otherwise it expires: `tenants.expires_at` (migration `004`, empty for normal workspaces). From that moment its token gets 401 `sandbox expired`. The next sandbox creation deletes up to 10 expired sandboxes (oldest first), and the daily cron (`/api/internal/cron/seed`) deletes the rest, so the data is gone at the latest about a day after expiry. Everything in a sandbox goes with the tenant (`ON DELETE CASCADE`).
 - Off by default, and switched on per deployment: `ALLOW_SANDBOX=true` on the API and `NEXT_PUBLIC_SANDBOX=true` for the web build (Docker Compose passes `ALLOW_SANDBOX` to both). Without them the button is not shown. The static preview never shows it.
 
-**Ask as a conversation.** The Ask page is a chat: follow-up questions are sent with the last 4 turns as `history` (2,000 characters per field), so "and for express?" is understood, and a rewritten search query is shown under the answer. The conversation stays for the browser tab (sessionStorage), and there are **New chat** and copy buttons. Answers appear word by word (instantly with reduced motion) and the page scrolls to the start of the new answer. Screen readers hear the whole answer once, through a polite live region, and never the half-typed text.
+Anyone can press the button, so sandboxes have limits. All are API settings:
 
-The UI is available in **English, Russian and Arabic**. Arabic uses a full right-to-left layout, and the language is rendered server-side, so the first paint is already correct.
+| Setting | Default | What it limits |
+|---|---|---|
+| `SANDBOX_RATE_LIMIT` | 3 | New sandboxes per IP per hour, counted per instance. Refused attempts do not count. |
+| `SANDBOX_MAX_ACTIVE` | 20 | Live sandboxes at once, across all instances. |
+| `SANDBOX_MAX_DOCUMENTS` | 10 | Documents per sandbox, the samples included. |
+| `SANDBOX_MAX_BYTES`, `SANDBOX_MAX_FILE_BYTES` | 1 MB, 512 KB | Files per sandbox in total, and per file (documents and CSVs). |
+| `SANDBOX_MAX_CSV_ROWS` | 5,000 | KPI points per sandbox over all imports, the 1,080 sample points included. |
+| `SANDBOX_WRITE_RATE_LIMIT` | 20 | Uploads, re-indexes, CSV imports and demo loads per sandbox per hour. |
+| `SANDBOX_GLOBAL_WRITE_RATE_LIMIT` | 30 | The same writes for all sandboxes together per hour (503 above it). Each one is an indexing run on the host's CPU quota, and one visitor could hold every live sandbox. |
+| `SANDBOX_DB_BRAKE_BYTES` | 350 MB | While the database is larger, sandbox creation and sandbox writes answer 503, so sandboxes stop growing long before a 500 MB free database fills up and turns read-only. Checked once a minute per instance. |
+
+The document, size and KPI-point limits are checked in the write's transaction under a lock on the tenant row, so parallel requests cannot slip past them. The write budgets are counted in the audit log, so they hold across serverless instances. `0` turns off a rate limit or the brake. A sandbox can only re-index a failed or stuck document (409 otherwise), cannot add users or change roles (403), and shares the usual AI budget.
 
 ## Testing
 
@@ -348,7 +400,7 @@ CI runs every suite against real Postgres + Redis service containers. It then st
 - **i18n**: Russian and Arabic (RTL) switch `<html lang/dir>` and survive a reload
 - **answer Markdown** (unit tests, no browser): the parser, the word-by-word reveal and the text read to screen readers
 
-CI runs fourteen jobs on every pull request and every push to `main`:
+CI runs these jobs on every pull request and every push to `main`:
 
 | Job | What it checks |
 |---|---|
