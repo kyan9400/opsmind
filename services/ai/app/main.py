@@ -21,7 +21,7 @@ from .db import get_pool
 from .embeddings import embed_batched, get_embedder
 from .extract import DocumentOverLimit, extract_text
 from .insights import KpiDelta, NamedAnomaly, summarize
-from .llm import Turn, answer_with_fallback, build_retrieval_query, cited_numbers
+from .llm import NO_ANSWER, Turn, answer_with_fallback, build_retrieval_query, cited_numbers
 from .retrieval import hybrid_search
 from .telemetry import ANOMALIES, EMBED_DURATION, metrics_middleware, metrics_response, setup_tracing, timed
 
@@ -148,6 +148,10 @@ class Citation(BaseModel):
 
 class AskResponse(BaseModel):
     answer: str
+    # False when the sources hold no answer: the no-answer reply, or one that cites none of them. The
+    # no-answer text is English (a model's reply is in the question's language), so clients that show
+    # another language use this flag, not the text.
+    found: bool
     citations: list[Citation]
     provider: str
     retrieval_query: str
@@ -169,6 +173,7 @@ def ask(req: AskRequest) -> AskResponse:
     used = cited_numbers(answer, len(hits))
     return AskResponse(
         answer=answer,
+        found=answer != NO_ANSWER and bool(used),
         citations=[
             Citation(
                 n=i,

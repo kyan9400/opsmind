@@ -200,6 +200,38 @@ def test_ask_rate_limited_llm_still_answers(fake_search, compatible):
     assert data["retrieval_query"] == "How many days for a refund?"
 
 
+def ask(question: str) -> dict:
+    body = {"tenant_id": TENANT, "question": question}
+    res = TestClient(main.app).post("/v1/ask", headers=HEADERS, json=body)
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_ask_flags_a_question_the_sources_do_not_answer(fake_search, monkeypatch):
+    monkeypatch.setattr(llm, "settings", Settings())  # extractive default
+    assert ask("How many days to request a refund?")["found"] is True
+    # The English sources share no word with a Russian question: the reply is the English no-answer text,
+    # and the flag lets the web say so in Russian.
+    data = ask("Сколько дней на возврат?")
+    assert data["answer"] == llm.NO_ANSWER and data["found"] is False
+    assert not any(c["cited"] for c in data["citations"])
+
+
+@pytest.mark.parametrize(
+    "text, found",
+    [
+        ("Within 30 days [1].", True),
+        ("В источниках нет ответа на этот вопрос.", False),
+        ("Bad citation [7].", False),
+    ],
+    ids=["cited", "uncited", "out-of-range"],
+)
+def test_ask_flags_a_model_reply_that_cites_no_source(fake_search, compatible, text, found):
+    compatible(ok(text))
+    data = ask("Сколько дней на возврат?")
+    assert data["provider"] == "openai-compatible" and data["answer"] == text and data["found"] is found
+
+
 @pytest.mark.parametrize(
     "history",
     [
