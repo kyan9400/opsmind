@@ -271,8 +271,12 @@ export const en = {
   "sandbox.button": "Try it with your own data",
   "sandbox.loading": "Creating your workspace…",
   "sandbox.loginTitle": "Want to try your own files?",
-  "sandbox.loginBody":
-    "Get a private temporary workspace with sample data. Upload documents and ask about them. It is deleted after 24 hours.",
+  "sandbox.loginBody": "Get a private temporary workspace with sample data. Upload documents and ask about them.",
+  // Follows sandbox.loginBody; {count} is the sandbox lifetime (API: SANDBOX_TTL_HOURS).
+  "sandbox.deletedAfter": {
+    one: "It is deleted after {count} hour.",
+    other: "It is deleted after {count} hours.",
+  },
   "sandbox.banner": {
     one: "Temporary workspace — deleted in {count} hour",
     other: "Temporary workspace — deleted in {count} hours",

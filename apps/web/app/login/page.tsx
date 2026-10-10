@@ -12,6 +12,7 @@ import { api, ApiError, clearToken, getToken, type Me, sandboxExpiry, setToken }
 import { registrationEnabled } from "@/lib/flags";
 import { useT } from "@/lib/i18n/provider";
 import { PREVIEW } from "@/lib/preview";
+import { SANDBOX_TTL_HOURS } from "@/lib/sandbox";
 
 /** Centered auth layout: logo above, card in the middle, a quiet way back home. */
 function AuthShell({ children }: { children: React.ReactNode }) {
@@ -227,7 +228,9 @@ function AuthForm() {
             {sandboxEnabled && (
               <div className="rounded-control border border-line bg-muted p-4">
                 <p className="text-sm font-semibold text-fg">{t("sandbox.loginTitle")}</p>
-                <p className="mt-1 text-sm text-fg-muted">{t("sandbox.loginBody")}</p>
+                <p className="mt-1 text-sm text-fg-muted">
+                  {t("sandbox.loginBody")} {t("sandbox.deletedAfter", { count: SANDBOX_TTL_HOURS })}
+                </p>
                 <SandboxButton variant="secondary" className="mt-3 [&>button]:w-full" />
               </div>
             )}

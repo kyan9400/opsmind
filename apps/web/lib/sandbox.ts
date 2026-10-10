@@ -1,5 +1,9 @@
 import { api, sandboxExpiry } from "./api";
 
+// The API's default SANDBOX_TTL_HOURS (apps/api/src/config.ts), which the live demo keeps: for the text that
+// says how long a sandbox lasts before one exists. Once it does, /auth/me gives its real expiry.
+export const SANDBOX_TTL_HOURS = 3;
+
 /** True while the stored session is a sandbox that has not expired yet. */
 export function liveSandbox(): boolean {
   const at = sandboxExpiry();

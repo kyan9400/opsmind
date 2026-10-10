@@ -263,7 +263,13 @@ export const ru: Dict = {
   "sandbox.loading": "Создаём пространство…",
   "sandbox.loginTitle": "Хотите попробовать на своих файлах?",
   "sandbox.loginBody":
-    "Получите временное личное пространство с примерами данных. Загружайте документы и задавайте по ним вопросы. Оно удаляется через 24 часа.",
+    "Получите временное личное пространство с примерами данных. Загружайте документы и задавайте по ним вопросы.",
+  "sandbox.deletedAfter": {
+    one: "Оно удаляется через {count} час.",
+    few: "Оно удаляется через {count} часа.",
+    many: "Оно удаляется через {count} часов.",
+    other: "Оно удаляется через {count} часа.",
+  },
   // The banner is sticky and must stay on one line on a phone, so these stay under about 40 characters.
   "sandbox.banner": {
     one: "Временное пространство · ещё {count} час",

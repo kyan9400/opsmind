@@ -19,7 +19,8 @@ test("try it with your own data: create a sandbox, upload a file, ask about it",
 
   const banner = page.getByTestId("sandbox-banner");
   await expect(banner).toBeVisible();
-  await expect(banner).toContainText(/deleted in 2[34] hours/);
+  // A fresh sandbox lasts SANDBOX_TTL_HOURS (3); the banner rounds what is left down to whole hours.
+  await expect(banner).toContainText(/deleted in [23] hours/);
   await expect(page.getByTestId("sidebar-account")).toContainText("Sandbox workspace");
 
   // The four sample documents are there from the start; the visitor is the owner and can upload.
