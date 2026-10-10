@@ -17,7 +17,6 @@ import { importDemo } from "./metrics.js";
 import { enqueueIngestAll } from "./queue.js";
 import { assertDatabaseHasRoom } from "./sandboxLimits.js";
 
-export const SANDBOX_TTL_HOURS = 24;
 export const SANDBOX_TENANT_NAME = "Sandbox workspace";
 
 /** Expired sandboxes a creation deletes on its way: small, so a visitor never waits on a big cleanup. */
@@ -55,7 +54,7 @@ export async function createSandbox(): Promise<{ token: string; expiresAt: strin
     const tenant = await tx.query<{ id: string; expires_at: Date }>(
       `INSERT INTO tenants (name, expires_at) VALUES ($1, now() + make_interval(hours => $2))
        RETURNING id, expires_at`,
-      [SANDBOX_TENANT_NAME, SANDBOX_TTL_HOURS],
+      [SANDBOX_TENANT_NAME, config.SANDBOX_TTL_HOURS],
     );
     const { id: tenantId, expires_at } = tenant.rows[0];
     const user = await tx.query<{ id: string }>(
@@ -81,7 +80,7 @@ export async function createSandbox(): Promise<{ token: string; expiresAt: strin
   }
 
   return {
-    token: signToken({ sub: created.userId, tenantId: created.tenantId, role: "owner" }, "24h"),
+    token: signToken({ sub: created.userId, tenantId: created.tenantId, role: "owner" }, config.SANDBOX_TTL_HOURS),
     expiresAt: created.expiresAt.toISOString(),
   };
 }

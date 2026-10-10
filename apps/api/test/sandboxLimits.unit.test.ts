@@ -237,6 +237,7 @@ describe("sandbox settings", () => {
     process.env.SANDBOX_MAX_BYTES = " ";
     const { config } = await import("../src/config.js");
     expect(config).toMatchObject({
+      SANDBOX_TTL_HOURS: 3,
       SANDBOX_MAX_ACTIVE: 20,
       SANDBOX_MAX_DOCUMENTS: 10,
       SANDBOX_MAX_BYTES: MB,

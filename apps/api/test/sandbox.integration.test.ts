@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import jwt from "jsonwebtoken";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { config } from "../src/config.js";
@@ -54,13 +55,15 @@ run("sandbox workspaces (postgres)", () => {
     return { auth, expiresAt: res.body.expiresAt as string, me: me.body };
   }
 
-  it("creates a private, seeded, owner-run workspace that expires in 24 hours", async () => {
+  it("creates a private, seeded, owner-run workspace that expires after SANDBOX_TTL_HOURS, its token too", async () => {
     const before = Date.now();
     const { auth, expiresAt, me } = await createSandbox();
 
     const hours = (new Date(expiresAt).getTime() - before) / 3_600_000;
-    expect(hours).toBeGreaterThan(23.9);
-    expect(hours).toBeLessThan(24.1);
+    expect(hours).toBeGreaterThan(config.SANDBOX_TTL_HOURS - 0.1);
+    expect(hours).toBeLessThan(config.SANDBOX_TTL_HOURS + 0.1);
+    const token = jwt.decode(auth.slice("Bearer ".length)) as { iat: number; exp: number };
+    expect(token.exp - token.iat).toBe(config.SANDBOX_TTL_HOURS * 3600);
     expect(me).toMatchObject({ role: "owner", tenantName: "Sandbox workspace" });
     expect(new Date(me.expiresAt).toISOString()).toBe(expiresAt);
     expect(me.email).toMatch(/^sandbox\+[0-9a-f]{32}@sandbox\.invalid$/);

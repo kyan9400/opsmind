@@ -52,8 +52,11 @@ const Env = z
     METRICS_PUBLIC: flag(true),
     // Enables GET /api/internal/cron/* for callers sending "Authorization: Bearer <CRON_SECRET>" (Vercel Cron does).
     CRON_SECRET: z.preprocess(blankToUndefined, z.string().min(16).optional()),
-    // true opens POST /api/v1/sandbox: anyone can create a temporary private workspace (24 h) with sample data.
+    // true opens POST /api/v1/sandbox: anyone can create a temporary private workspace with sample data.
     ALLOW_SANDBOX: flag(false),
+    // How long a sandbox, and its token, lasts. Short, so the SANDBOX_MAX_ACTIVE slots turn over several
+    // times a day; the next creation deletes expired sandboxes and reuses their space.
+    SANDBOX_TTL_HOURS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(3)),
     // Sandbox creations per client IP per hour; 0 disables (browser tests).
     SANDBOX_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(3)),
     // Unexpired sandboxes at once. The per-IP limit is per instance on serverless hosts, so this cap (with
