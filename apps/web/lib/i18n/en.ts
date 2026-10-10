@@ -106,6 +106,10 @@ export const en = {
   "docs.upload": "Upload",
   "docs.uploading": "Uploading…",
   "docs.maxSize": "Max 10 MB",
+  // In a sandbox. {file}, {total}, {size}, {max} and {used} are sizes such as "512 KB".
+  "docs.maxSizeSandbox": "Max {file} per file, {total} in total",
+  "docs.tooLarge": "This file is {size}. A temporary workspace takes files up to {max}.",
+  "docs.sandboxFull": "A temporary workspace holds up to {max} of files, and {used} is in use. Delete a document to make room.",
   "docs.colTitle": "Title",
   "docs.colSize": "Size",
   "docs.colChunks": "Chunks",

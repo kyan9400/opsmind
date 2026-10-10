@@ -93,6 +93,7 @@ export interface DocumentItem {
   error: string | null;
   chunkCount: number;
   createdAt: string;
+  updatedAt: string;
 }
 export interface Citation {
   n: number;
