@@ -150,7 +150,7 @@ describe("exports", () => {
       provider: "template",
       ms: 3,
       anomalies: [
-        { metricId: "m2", metric: "Support tickets", unit: "", day: "2026-09-24", value: 120, expected: 55, deviationPct: 118.2, z: 9.1, severity: "high", kind: "spike", bad: true },
+        { metricId: "m2", metric: "Support tickets", unit: "", day: "2026-09-24", value: 120, expected: 55.4, deviationPct: 116.6, z: 9.1, severity: "high", kind: "spike", bad: true },
       ],
     },
   };
@@ -164,11 +164,15 @@ describe("exports", () => {
     const summary = wb.getWorksheet("Summary")!;
     expect(summary.getCell("A1").value).toContain("ООО Ромашка");
     expect(summary.getCell("D5").value).toBe(70000);
+    // Whole numbers without a dangling decimal point ("70,000", not "70,000."); fractions keep theirs.
+    expect(summary.getCell("D5").numFmt).toBe("#,##0");
     expect(summary.getCell("F5").value).toBeCloseTo(0.0769);
     const data = wb.getWorksheet("Daily data")!;
     expect(data.rowCount).toBe(8); // header + 7 days
     expect(data.getCell("B2").value).toBe(10000);
-    expect(wb.getWorksheet("Anomalies")!.getCell("G2").value).toBe("Needs attention");
+    const anomalies = wb.getWorksheet("Anomalies")!;
+    expect(anomalies.getCell("G2").value).toBe("Needs attention");
+    expect([anomalies.getCell("C2").numFmt, anomalies.getCell("D2").numFmt]).toEqual(["#,##0", "#,##0.0#"]);
   });
 
   it("builds a PDF, including non-Latin text, with and without AI insights", async () => {

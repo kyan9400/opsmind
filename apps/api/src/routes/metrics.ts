@@ -82,7 +82,7 @@ metricsRouter.post("/import", requireRole("member"), sandboxWriteGuard, csvUploa
 
   const filename = req.file.originalname;
   const imported = await withTx(async (tx) => {
-    if (sandbox) await reserveSandboxWrite(tx, tenantId);
+    if (sandbox) await reserveSandboxWrite(tx, tenantId, "metrics.imported");
     const result = await importRowsTx(tx, tenantId, rows, {
       maxPoints: sandbox ? config.SANDBOX_MAX_CSV_ROWS : undefined,
     });
@@ -97,7 +97,7 @@ metricsRouter.post("/import", requireRole("member"), sandboxWriteGuard, csvUploa
 metricsRouter.post("/demo", requireRole("admin"), sandboxWriteGuard, async (req, res) => {
   const { tenantId, sub, sandbox } = req.user!;
   const imported = await withTx(async (tx) => {
-    if (sandbox) await reserveSandboxWrite(tx, tenantId);
+    if (sandbox) await reserveSandboxWrite(tx, tenantId, "metrics.demo_loaded");
     const result = await importDemoTx(tx, tenantId, generateDemoData(todayUtc()), {
       maxPoints: sandbox ? config.SANDBOX_MAX_CSV_ROWS : undefined,
     });

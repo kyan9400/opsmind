@@ -50,13 +50,16 @@ export const aiRateLimit: RequestHandler = (req, res, next) =>
  * rows into the free database, and the sandbox owner is an anonymous visitor. In memory, so per
  * instance; reserveSandboxWrite() repeats the count in the database inside the write's transaction and
  * adds the cap for all sandboxes together (SANDBOX_GLOBAL_WRITE_RATE_LIMIT).
- * Mount it after requireAuth and before any body parsing, so a refused request is never read.
+ * Only writes that went through count, as in the database: a refused one (a file too big, a re-index of
+ * a ready document) did none of that work, and should not leave the visitor waiting an hour.
+ * Mount it after requireAuth and before any body parsing, so a request over the budget is never read.
  */
 const sandboxWrites = rateLimit({
   windowMs: 60 * 60 * 1000,
   // Read per request, so tests can change it without reloading the app.
   limit: () => config.SANDBOX_WRITE_RATE_LIMIT,
   skip: (req) => !req.user?.sandbox || config.SANDBOX_WRITE_RATE_LIMIT === 0,
+  skipFailedRequests: true,
   keyGenerator: (req) => req.user!.tenantId,
   standardHeaders: "draft-7",
   legacyHeaders: false,

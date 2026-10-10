@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import jwt from "jsonwebtoken";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { config } from "../src/config.js";
@@ -6,7 +7,7 @@ import { pool } from "../src/lib/db.js";
 import { closeQueue } from "../src/lib/queue.js";
 import { closeRedis } from "../src/lib/redis.js";
 import { deleteExpiredSandboxes } from "../src/lib/sandbox.js";
-import { SANDBOX_WRITE_ACTIONS } from "../src/lib/sandboxLimits.js";
+import { SANDBOX_INDEXING_ACTIONS, SANDBOX_WRITE_ACTIONS } from "../src/lib/sandboxLimits.js";
 
 // Needs Postgres + Redis (CI provides both; queue mode hands the sample documents to a worker that is not
 // running here, so they stay queued). Skipped locally unless INTEGRATION=1.
@@ -54,13 +55,15 @@ run("sandbox workspaces (postgres)", () => {
     return { auth, expiresAt: res.body.expiresAt as string, me: me.body };
   }
 
-  it("creates a private, seeded, owner-run workspace that expires in 24 hours", async () => {
+  it("creates a private, seeded, owner-run workspace that expires after SANDBOX_TTL_HOURS, its token too", async () => {
     const before = Date.now();
     const { auth, expiresAt, me } = await createSandbox();
 
     const hours = (new Date(expiresAt).getTime() - before) / 3_600_000;
-    expect(hours).toBeGreaterThan(23.9);
-    expect(hours).toBeLessThan(24.1);
+    expect(hours).toBeGreaterThan(config.SANDBOX_TTL_HOURS - 0.1);
+    expect(hours).toBeLessThan(config.SANDBOX_TTL_HOURS + 0.1);
+    const token = jwt.decode(auth.slice("Bearer ".length)) as { iat: number; exp: number };
+    expect(token.exp - token.iat).toBe(config.SANDBOX_TTL_HOURS * 3600);
     expect(me).toMatchObject({ role: "owner", tenantName: "Sandbox workspace" });
     expect(new Date(me.expiresAt).toISOString()).toBe(expiresAt);
     expect(me.email).toMatch(/^sandbox\+[0-9a-f]{32}@sandbox\.invalid$/);
@@ -272,23 +275,26 @@ run("sandbox workspaces (postgres)", () => {
     });
   });
 
-  it("caps the writes of all sandboxes together per hour, also when they arrive at once", async () => {
+  it("caps the uploads of all sandboxes together per hour, also when they arrive at once", async () => {
     const sandboxes = await Promise.all(Array.from({ length: 4 }, () => createSandbox()));
     const allWrites = () =>
       one(
         `SELECT count(*)::int AS n FROM tenants t JOIN audit_log a ON a.tenant_id = t.id
           WHERE t.expires_at IS NOT NULL AND a.action = ANY($1::text[]) AND a.created_at > now() - interval '1 hour'`,
-        [SANDBOX_WRITE_ACTIONS],
+        [SANDBOX_INDEXING_ACTIONS],
       );
-    const refused = "temporary workspaces have reached their uploads and imports for this hour, try again later";
+    const refused = "temporary workspaces have reached their document uploads for this hour, try again later";
 
-    // Room for two more writes: two sandboxes use them, a third is refused although it made none.
+    // Room for two more uploads: two sandboxes use them, a third is refused although it made none.
     await withSettings({ SANDBOX_GLOBAL_WRITE_RATE_LIMIT: (await allWrites()) + 2 }, async () => {
       await upload(sandboxes[0].auth, "first").expect(202);
-      await importCsv(sandboxes[1].auth, ["2020-01-01,Visitors,1"]).expect(201);
+      await upload(sandboxes[1].auth, "second").expect(202);
       const res = await upload(sandboxes[2].auth, "third").expect(503);
       expect(res.body.error).toBe(refused);
-      expect((await demoLoad(sandboxes[3].auth).expect(503)).body.error).toBe(refused);
+      // KPI writes index nothing, so they neither count nor wait for room.
+      await importCsv(sandboxes[3].auth, ["2020-01-01,Visitors,1"]).expect(201);
+      await demoLoad(sandboxes[3].auth).expect(201);
+      expect((await upload(sandboxes[3].auth, "fourth").expect(503)).body.error).toBe(refused);
     });
 
     // Four sandboxes at once with room for two: the advisory lock makes them take turns.
@@ -394,5 +400,45 @@ run("sandbox workspaces (postgres)", () => {
     // The next visitor's sandbox takes the rest with it, without waiting for the daily cron.
     await createSandbox();
     expect(await left()).toEqual([]);
+  });
+
+  const endSandbox = (auth: string) => request(app).delete("/api/v1/sandbox").set("authorization", auth);
+  const tenantsLeft = (tenantId: string) => one("SELECT count(*)::int AS n FROM tenants WHERE id = $1", [tenantId]);
+
+  it("ends a sandbox early for its owner: the token stops, the slot frees and the data goes at once", async () => {
+    const { auth, me } = await createSandbox();
+    const owner = await request(app)
+      .post("/api/v1/auth/register")
+      .send({ tenantName: "Not a sandbox", name: "P", email: `end-${Date.now()}@x.io`, password: "password123" })
+      .expect(201);
+    const permanent = `Bearer ${owner.body.token as string}`;
+    const ownerMe = await request(app).get("/api/v1/auth/me").set("authorization", permanent).expect(200);
+    await endSandbox(permanent).expect(403);
+    expect(await tenantsLeft(ownerMe.body.tenantId)).toBe(1);
+
+    await endSandbox(auth).expect(204);
+    await request(app).get("/api/v1/documents").set("authorization", auth).expect(401);
+    expect(await tenantsLeft(me.tenantId)).toBe(0);
+    expect(await one("SELECT count(*)::int AS n FROM documents WHERE tenant_id = $1", [me.tenantId])).toBe(0);
+  });
+
+  it("keeps an ended sandbox while the all-sandboxes budget still counts its uploads, then deletes it", async () => {
+    await withSettings({ SANDBOX_GLOBAL_WRITE_RATE_LIMIT: MAX_ACTIVE }, async () => {
+      const { auth, me } = await createSandbox();
+      await upload(auth, "counted").expect(202);
+      await endSandbox(auth).expect(204);
+      await request(app).get("/api/v1/documents").set("authorization", auth).expect(401);
+      // Ended (its slot is free), but deleting it would take the upload out of this hour's count.
+      const ended = "SELECT count(*)::int AS n FROM tenants WHERE id = $1 AND expires_at <= now()";
+      expect(await one(ended, [me.tenantId])).toBe(1);
+      await deleteExpiredSandboxes();
+      expect(await tenantsLeft(me.tenantId)).toBe(1);
+
+      await pool.query("UPDATE audit_log SET created_at = now() - interval '61 minutes' WHERE tenant_id = $1", [
+        me.tenantId,
+      ]);
+      await deleteExpiredSandboxes();
+      expect(await tenantsLeft(me.tenantId)).toBe(0);
+    });
   });
 });

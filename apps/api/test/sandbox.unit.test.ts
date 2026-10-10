@@ -14,7 +14,7 @@ async function loadApp(env: Record<string, string> = {}) {
   const { createApp } = await import("../src/app.js");
   // The fake db instance this app was built with (a direct import of the helper may be a fresh copy).
   const db = (await import("../src/lib/db.js")) as unknown as typeof import("./helpers/fakeDb.js");
-  return { app: createApp(), bearer: db.bearer };
+  return { app: createApp(), bearer: db.bearer, db };
 }
 
 afterEach(() => {
@@ -46,6 +46,60 @@ describe("POST /api/v1/sandbox", () => {
     const blocked = await request(app).post("/api/v1/sandbox").expect(429);
     expect(blocked.body.error).toMatch(/too many temporary workspaces/);
     expect(createSandbox).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not count refusals (every slot taken) against the per-IP budget", async () => {
+    let full = 3;
+    const createSandbox = vi.fn();
+    vi.doMock("../src/lib/sandbox.js", async () => {
+      // From the app's own module instance, so the error handler recognises it.
+      const { HttpError } = await import("../src/lib/errors.js");
+      createSandbox.mockImplementation(async () => {
+        if (full-- > 0) throw new HttpError(503, "too many temporary workspaces right now, try again later");
+        return { token: "t", expiresAt: inOneDay().toISOString() };
+      });
+      return { createSandbox, deleteExpiredSandboxes: vi.fn() };
+    });
+    const { app } = await loadApp({ ALLOW_SANDBOX: "true", SANDBOX_RATE_LIMIT: "2" });
+
+    for (let i = 0; i < 3; i++) await request(app).post("/api/v1/sandbox").expect(503);
+    // Once a slot frees up, the visitor still has both of their creations.
+    await request(app).post("/api/v1/sandbox").expect(201);
+    await request(app).post("/api/v1/sandbox").expect(201);
+    await request(app).post("/api/v1/sandbox").expect(429);
+    expect(createSandbox).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe("DELETE /api/v1/sandbox", () => {
+  it("ends the caller's sandbox for its owner, and for nobody else", async () => {
+    // With the sandbox switched off too: sandboxes that are still live can be ended.
+    const { app, bearer, db } = await loadApp();
+    const calls: [string, unknown[]][] = [];
+    db.answers.push(
+      { match: /^UPDATE tenants SET expires_at = now\(\)/, rows: (params) => (calls.push(["end", params]), []) },
+      { match: /^DELETE FROM tenants t WHERE t\.id = \$1/, rows: (params) => (calls.push(["delete", params]), []) },
+    );
+
+    await request(app).delete("/api/v1/sandbox").expect(401);
+    const others = [
+      bearer("owner", { sub: "real-owner" }),
+      bearer("viewer", { sub: "demo-viewer" }),
+      bearer("admin", { sub: "sb-admin", tenantId: "sb5", expiresAt: inOneDay() }),
+    ];
+    for (const auth of others) {
+      const res = await request(app).delete("/api/v1/sandbox").set("authorization", auth).expect(403);
+      expect(res.body.error).toBe("only the owner of a temporary workspace can end it");
+    }
+    expect(calls).toEqual([]);
+
+    const owner = bearer("owner", { sub: "sb-owner", tenantId: "sb4", expiresAt: inOneDay() });
+    await request(app).delete("/api/v1/sandbox").set("authorization", owner).expect(204);
+    expect(calls).toEqual([
+      ["end", ["sb4"]],
+      // Deleted at once unless the all-sandboxes budget still counts an upload of its last hour.
+      ["delete", ["sb4", ["document.uploaded", "document.reindexed"], true]],
+    ]);
   });
 });
 

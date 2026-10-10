@@ -22,7 +22,7 @@ const Env = z
     CORS_ORIGIN: z.string().default("http://localhost:3000"),
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     // Queue mode needs it (and falls back to a local Redis, below); inline mode uses it only for the
-    // insights cache, and runs uncached without it.
+    // insights cache, which without it lives in each instance's memory.
     REDIS_URL: z.preprocess(blankToUndefined, z.string().url().optional()),
     // A trailing slash would turn "/v1/ask" into "//v1/ask", which the AI service answers with 404.
     AI_SERVICE_URL: z
@@ -52,8 +52,11 @@ const Env = z
     METRICS_PUBLIC: flag(true),
     // Enables GET /api/internal/cron/* for callers sending "Authorization: Bearer <CRON_SECRET>" (Vercel Cron does).
     CRON_SECRET: z.preprocess(blankToUndefined, z.string().min(16).optional()),
-    // true opens POST /api/v1/sandbox: anyone can create a temporary private workspace (24 h) with sample data.
+    // true opens POST /api/v1/sandbox: anyone can create a temporary private workspace with sample data.
     ALLOW_SANDBOX: flag(false),
+    // How long a sandbox, and its token, lasts. Short, so the SANDBOX_MAX_ACTIVE slots turn over several
+    // times a day; the next creation deletes expired sandboxes and reuses their space.
+    SANDBOX_TTL_HOURS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(3)),
     // Sandbox creations per client IP per hour; 0 disables (browser tests).
     SANDBOX_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(3)),
     // Unexpired sandboxes at once. The per-IP limit is per instance on serverless hosts, so this cap (with
@@ -75,10 +78,12 @@ const Env = z
     // metrics = 1,080 of them). A cap per import alone would let repeated imports grow without bound.
     SANDBOX_MAX_CSV_ROWS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(5000)),
     // Uploads, re-indexes, CSV imports and demo loads per sandbox per hour; 0 disables. Counted in memory and
-    // again in the database (audit log), so the limit also holds across serverless instances.
-    SANDBOX_WRITE_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(20)),
-    // The same writes for all sandboxes together, per hour; 0 disables. One visitor can hold every live
-    // sandbox, and each write is an indexing run on the host's monthly CPU quota (4 h on Vercel Hobby).
+    // again in the database (audit log), so the limit also holds across serverless instances. A third of
+    // the budget below, so one sandbox cannot spend the uploads of all the others.
+    SANDBOX_WRITE_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(10)),
+    // Uploads and re-indexes of all sandboxes together, per hour; 0 disables. One visitor can hold several
+    // sandboxes, and each of these writes is an indexing run on the host's monthly CPU quota (4 h on Vercel
+    // Hobby).
     SANDBOX_GLOBAL_WRITE_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(30)),
     // Global brake: while the database is larger than this (pg_database_size), sandbox creation and sandbox
     // writes answer 503. It sits below Supabase Free's 500 MB, where the whole project turns read-only (the

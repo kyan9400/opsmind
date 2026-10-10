@@ -16,6 +16,8 @@ interface AiAskResult {
   detail?: string;
   /** The standalone question retrieval ran with (the follow-up rewritten with the history). */
   retrieval_query?: string;
+  /** False when the documents held no answer (the no-answer text, or nothing cited). Older services omit it. */
+  found?: boolean;
   citations: {
     n: number;
     document_id: string;
@@ -56,6 +58,7 @@ askRouter.post("/", requireAuth, requireRole("viewer"), aiRateLimit, async (req,
     provider: data.provider,
     ms: data.ms,
     ...(data.retrieval_query && { retrievalQuery: data.retrieval_query }),
+    ...(typeof data.found === "boolean" && { found: data.found }),
     citations: data.citations.map((c) => ({
       n: c.n,
       documentId: c.document_id,
