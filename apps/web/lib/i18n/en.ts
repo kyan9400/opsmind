@@ -5,7 +5,11 @@ import type { PluralForms } from "./types";
  * is a compile error until every language has it. Plural entries are objects keyed by CLDR category.
  */
 export const en = {
-  "meta.description": "AI-powered operations and knowledge platform",
+  // Whole site title per language, so each translation controls its own case and word order.
+  "meta.title": "OpsMind — AI-powered operations and knowledge platform",
+  // Text under the title in link previews (LinkedIn, Telegram, Slack) and search results.
+  "meta.description":
+    "KPI dashboards that flag anomalies, and cited AI answers from your documents — in English, Russian and Arabic.",
 
   "lang.label": "Language",
   "common.loading": "Loading…",
@@ -57,6 +61,8 @@ export const en = {
   "login.email": "Email",
   "login.password": "Password (min 8 chars)",
   "login.submitSignIn": "Sign in",
+  // Tab title for /login, which switches between both forms in place.
+  "login.metaTitle": "Sign in or sign up",
   "login.submitRegister": "Create workspace",
   "login.toRegister": "New here? Create a workspace",
   "login.toSignIn": "Already have an account? Sign in",

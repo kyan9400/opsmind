@@ -323,6 +323,7 @@ it and has no fix yet).
 | `SANDBOX_MAX_DOCUMENTS` | api | `10` | `10` | Documents per sandbox, the 4 samples included. |
 | `SANDBOX_MAX_CSV_ROWS` | api | `5000` | `5000` | Rows per KPI CSV import in a sandbox. |
 | `NEXT_PUBLIC_SANDBOX` | web | unset | `true` | Shows **Try it with your own data** (build time). Pair with `ALLOW_SANDBOX=true`. |
+| `NEXT_PUBLIC_SITE_URL` | web | `http://localhost:3000` (`https://$DOMAIN` in `docker-compose.prod.yml`) | unset: Vercel's production domain is used | Public address in the link-preview image URL, `robots.txt` and `sitemap.xml` (build time). On Vercel, set it only for a custom domain. |
 | `DB_POOL_MAX` | ai | `10` | `2` | Postgres connections per instance. |
 | `DB_POOL_CHECK` | ai | `false` | `true` | Test each connection before use (instances freeze between requests). |
 
