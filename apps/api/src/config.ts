@@ -56,13 +56,34 @@ const Env = z
     ALLOW_SANDBOX: flag(false),
     // Sandbox creations per client IP per hour; 0 disables (browser tests).
     SANDBOX_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(3)),
-    // Unexpired sandboxes at once. The per-IP limit is per instance on serverless hosts, so this is the
-    // brake that actually protects a small free database.
-    SANDBOX_MAX_ACTIVE: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(50)),
+    // Unexpired sandboxes at once. The per-IP limit is per instance on serverless hosts, so this cap (with
+    // the per-sandbox budgets below) is what bounds the space sandboxes can take in a small free database.
+    SANDBOX_MAX_ACTIVE: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(20)),
     // Documents per sandbox, the 4 sample ones included.
     SANDBOX_MAX_DOCUMENTS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(10)),
-    // Rows per KPI CSV import in a sandbox (180 days x 6 sample metrics is 1,080).
+    // Total size of the files in one sandbox, samples included. Indexed text costs about 15 times its size
+    // in chunks, embeddings and their indexes (~10 KB per 700 characters). A PDF's text can outgrow its file;
+    // the AI service caps each document (INGEST_MAX_CHARS / INGEST_MAX_CHUNKS, ~3 MB of chunks), so a full
+    // sandbox takes up to ~20 MB and SANDBOX_MAX_ACTIVE of them stay below 500 MB; the brake below is the backstop.
+    SANDBOX_MAX_BYTES: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(1024 * 1024)),
+    // Largest single file (document or KPI CSV) a sandbox may upload; MAX_UPLOAD_BYTES still applies on top.
+    // Not lowered to the AI service's text limit (~200,000 characters): a PDF carries fonts and images, so an
+    // ordinary one is several times larger than its text. A plain-text file over ~180 KB is accepted and then
+    // fails indexing with "document too long".
+    SANDBOX_MAX_FILE_BYTES: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(512 * 1024)),
+    // KPI data points one sandbox may hold in total, across all imports (the samples are 180 days x 6
+    // metrics = 1,080 of them). A cap per import alone would let repeated imports grow without bound.
     SANDBOX_MAX_CSV_ROWS: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(5000)),
+    // Uploads, re-indexes, CSV imports and demo loads per sandbox per hour; 0 disables. Counted in memory and
+    // again in the database (audit log), so the limit also holds across serverless instances.
+    SANDBOX_WRITE_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(20)),
+    // The same writes for all sandboxes together, per hour; 0 disables. One visitor can hold every live
+    // sandbox, and each write is an indexing run on the host's monthly CPU quota (4 h on Vercel Hobby).
+    SANDBOX_GLOBAL_WRITE_RATE_LIMIT: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(30)),
+    // Global brake: while the database is larger than this (pg_database_size), sandbox creation and sandbox
+    // writes answer 503. It sits below Supabase Free's 500 MB, where the whole project turns read-only (the
+    // demo login included). 0 disables.
+    SANDBOX_DB_BRAKE_BYTES: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).default(350 * 1024 * 1024)),
   })
   .transform((env) => ({
     ...env,

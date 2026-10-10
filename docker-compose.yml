@@ -35,6 +35,8 @@ services:
       # Temporary "try it with your own data" workspaces; off unless ALLOW_SANDBOX=true (also shows the web button).
       ALLOW_SANDBOX: ${ALLOW_SANDBOX:-false}
       SANDBOX_RATE_LIMIT: ${SANDBOX_RATE_LIMIT:-3} # sandbox creations per IP per hour; 0 disables (browser tests)
+      SANDBOX_WRITE_RATE_LIMIT: ${SANDBOX_WRITE_RATE_LIMIT:-20} # uploads/imports per sandbox per hour; 0 disables
+      SANDBOX_GLOBAL_WRITE_RATE_LIMIT: ${SANDBOX_GLOBAL_WRITE_RATE_LIMIT:-30} # the same, all sandboxes together; 0 disables
       REDIS_URL: redis://redis:6379
       AI_SERVICE_URL: http://ai:8000
     ports: ["4000:4000"]
@@ -71,6 +73,13 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text} # 768-d; a multilingual model helps cross-language questions
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1}
+      # Ingest limits; empty keeps the service defaults (200,000 characters, 300 chunks, 50 PDF pages,
+      # 10 MB of PDF page content, 20 s to read a PDF).
+      INGEST_MAX_CHARS: ${INGEST_MAX_CHARS:-}
+      INGEST_MAX_CHUNKS: ${INGEST_MAX_CHUNKS:-}
+      INGEST_MAX_PDF_PAGES: ${INGEST_MAX_PDF_PAGES:-}
+      INGEST_MAX_PDF_CONTENT_MB: ${INGEST_MAX_PDF_CONTENT_MB:-}
+      INGEST_MAX_PDF_SECONDS: ${INGEST_MAX_PDF_SECONDS:-}
     ports: ["8000:8000"]
     depends_on:
       postgres: { condition: service_healthy }

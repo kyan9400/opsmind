@@ -26,8 +26,12 @@ variables below, so Docker Compose, Helm/kind and Codespaces run exactly as befo
   demo login, uploads are limited to 4 MB, and `/metrics` is hidden (`METRICS_PUBLIC=false`).
 - **Or they try their own data.** With `ALLOW_SANDBOX=true` (api) and `NEXT_PUBLIC_SANDBOX=true` (web),
   **Try it with your own data** gives each visitor a private workspace for 24 hours, with sample data and
-  owner rights (upload, CSV import). The daily job deletes expired ones. Limits: 3 per IP per hour, 50 at
-  once, 10 documents each.
+  owner rights (upload, CSV import). Limits: 3 per IP per hour and 20 at once. Each one holds at most
+  10 documents and 1 MB of files (512 KB per file) and 5,000 KPI points, and makes at most 20 uploads or
+  imports per hour. When the database grows past 350 MB, new sandboxes and sandbox uploads stop (503)
+  until it is smaller again, long before the free database reaches its 500 MB. After 24 hours
+  the visitor's access ends; the data is deleted when the next visitor creates a sandbox, or by the daily
+  job at the latest.
 - **Cold starts.** After a quiet period the first click can take about 3–8 seconds. Nothing needs a manual wake-up.
 
 ## What you need
@@ -234,15 +238,44 @@ have free tiers.
    | `LLM_API_KEY` | your key | secret |
    | `LLM_MODEL` | a chat model your provider lists, e.g. `llama-3.1-8b-instant` | |
    | `LLM_TIMEOUT_S` | `30` | optional, seconds; this is the default |
-   | `LLM_MAX_TOKENS` | `400` | optional, answer length limit; this is the default |
+   | `LLM_MAX_TOKENS` | `1024` | optional, answer length limit; this is the default |
+   | `LLM_EXTRA_BODY` | unset | optional JSON object added to every request (see Cloudflare below) |
 
    **The key goes only into the ai project.** The api and web projects never call the model and must not
    get `LLM_API_KEY`. Never commit the key or paste it into an issue or chat.
 3. **Redeploy** the ai project. `AI_URL/health` now shows `"llm":"openai-compatible"`.
 
+**Cloudflare Workers AI (Gemma 4).** Use these values instead of the Groq ones (the key is a Workers AI
+API token; the account ID is on the Workers AI dashboard page):
+
+| Name | Value |
+| --- | --- |
+| `LLM_BASE_URL` | `https://api.cloudflare.com/client/v4/accounts/<account id>/ai/v1` |
+| `LLM_MODEL` | `@cf/google/gemma-4-26b-a4b-it` |
+| `LLM_EXTRA_BODY` | `{"chat_template_kwargs":{"enable_thinking":false}}` |
+
+Gemma 4 on Workers AI thinks before it answers unless `enable_thinking` is `false` (Cloudflare's model
+schema, checked October 2026). The thinking counts against `LLM_MAX_TOKENS` and the free daily neurons,
+and a long thought can use the whole budget and leave no answer. Before you rely on it, send one request
+from your own computer and check that `choices[0].message.content` holds the answer, not the thinking:
+
+```bash
+curl -s "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/ai/v1/chat/completions" \
+  -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+  -d '{"model":"@cf/google/gemma-4-26b-a4b-it","max_tokens":200,
+       "chat_template_kwargs":{"enable_thinking":false},
+       "messages":[{"role":"user","content":"Say hello in one sentence."}]}'
+```
+
+`LLM_EXTRA_BODY` is only for hosts that know the fields in it; others (Groq, for example) may answer 400
+to unknown fields, so leave it unset there.
+
 If the provider fails, times out or hits its free-tier rate limit, the question still gets an answer: the
-ai service falls back to the extractive answer and reports `"provider": "extractive-fallback"`. The
-analytics summary falls back to its template the same way. So a used-up free quota never breaks the demo.
+ai service falls back to the extractive answer and reports `"provider": "extractive-fallback"`. The same
+happens when the reply is empty, or is cut off at `LLM_MAX_TOKENS` before it cites a source (a cut-off
+reply that does cite one is shown with a trailing "…"). Thinking a model writes into the reply
+(`<think>…</think>`, Gemma's thought channel) is removed. The analytics summary falls back to its
+template the same way. So a used-up free quota never breaks the demo.
 
 ## Everyday use
 
@@ -290,7 +323,8 @@ it and has no fix yet).
 | Documents stay "queued" or "failed" | Run the workflow again; it re-indexes them. The daily job also retries them. |
 | Answers or insights show "AI service unavailable" | Open `AI_URL/health`. If it fails, open the ai project → **Logs**. Check `DATABASE_URL` on ai. |
 | "too many attempts" for every visitor | All visitors may reach the api through the web server's address. Add `AUTH_RATE_LIMIT` = `100` on api and redeploy. |
-| Upload says 413 | Files over 4 MB are refused on the live demo (Vercel accepts at most 4.5 MB per request). |
+| Upload says 413 | Files over 4 MB are refused on the live demo (Vercel accepts at most 4.5 MB per request). In a sandbox the limits are 512 KB per file and 1 MB in total. |
+| Sandbox button or sandbox upload says the demo database is nearly full (503) | The database is over 350 MB (`SANDBOX_DB_BRAKE_BYTES`). Check **Supabase → Reports → Database**. Expired sandboxes are deleted automatically, and new data reuses their space, but the size Supabase shows only goes down after a `VACUUM FULL` of the big tables (`chunks`, `documents`) in the SQL Editor. The read-only demo login keeps working the whole time. |
 | Sign-up says "registration is disabled" | Expected on the live demo. |
 | First click after a long pause is slow | Expected (3–8 seconds): the functions and the database wake up. |
 | Vercel email "usage limit reached" | The free plan stops until the next 30-day period. Usually this means bots. Check **Usage** in Vercel. |
@@ -317,14 +351,24 @@ it and has no fix yet).
 | `METRICS_PUBLIC` | api, ai | `true` | `false` | `false`: `/metrics` answers 404. |
 | `CRON_SECRET` | api | unset | random | Enables `/api/internal/cron/seed` for `Authorization: Bearer <secret>`. |
 | `DEMO_EMAIL`, `DEMO_PASSWORD` | api | unset | demo login | Used by the daily seed. |
-| `ALLOW_SANDBOX` | api | `false` | `true` | `true`: `POST /api/v1/sandbox` creates 24-hour private workspaces; the daily job deletes expired ones. |
+| `ALLOW_SANDBOX` | api | `false` | `true` | `true`: `POST /api/v1/sandbox` creates 24-hour private workspaces. Expired ones are deleted when the next one is created (10 at a time) and by the daily job. |
 | `SANDBOX_RATE_LIMIT` | api | `3` | `3` | Sandboxes per IP per hour (per instance); `0` disables the limit. |
-| `SANDBOX_MAX_ACTIVE` | api | `50` | `50` | Live sandboxes at once, across all instances (protects the free database). |
+| `SANDBOX_MAX_ACTIVE` | api | `20` | `20` | Live sandboxes at once, across all instances. |
 | `SANDBOX_MAX_DOCUMENTS` | api | `10` | `10` | Documents per sandbox, the 4 samples included. |
-| `SANDBOX_MAX_CSV_ROWS` | api | `5000` | `5000` | Rows per KPI CSV import in a sandbox. |
+| `SANDBOX_MAX_BYTES` | api | `1048576` | `1048576` | Total size of a sandbox's files (1 MB), samples included. More is refused with 413. |
+| `SANDBOX_MAX_FILE_BYTES` | api | `524288` | `524288` | Largest file a sandbox can upload, document or CSV (512 KB). |
+| `SANDBOX_MAX_CSV_ROWS` | api | `5000` | `5000` | KPI data points a sandbox can hold in total, over all imports (the samples are 1,080). |
+| `SANDBOX_WRITE_RATE_LIMIT` | api | `20` | `20` | Uploads, re-indexes, CSV imports and demo loads per sandbox per hour, counted in the database too; `0` disables. |
+| `SANDBOX_DB_BRAKE_BYTES` | api | `367001600` | `367001600` | Above this database size (350 MB) new sandboxes and sandbox writes get 503. Checked once a minute per instance; `0` disables. |
 | `NEXT_PUBLIC_SANDBOX` | web | unset | `true` | Shows **Try it with your own data** (build time). Pair with `ALLOW_SANDBOX=true`. |
 | `DB_POOL_MAX` | ai | `10` | `2` | Postgres connections per instance. |
 | `DB_POOL_CHECK` | ai | `false` | `true` | Test each connection before use (instances freeze between requests). |
+| `INGEST_MAX_CHARS` | ai | `200000` | default | Characters of extracted text per document; above it the document fails with "document too long". `0`: no limit. |
+| `INGEST_MAX_CHUNKS` | ai | `300` | default | Chunks per document (each stores a vector and index entries, ~8 KB). `0`: no limit. |
+| `INGEST_MAX_PDF_PAGES` | ai | `50` | default | PDF pages, checked before any text is extracted. `0`: no limit. |
+| `INGEST_MAX_PDF_CONTENT_MB` | ai | `10` | default | Decoded PDF page content, checked before any page is parsed; above it the document fails with "document too complex". Also caps one decoded stream at 4 MB. `0`: no limit. |
+| `INGEST_MAX_PDF_SECONDS` | ai | `20` | default | Time to read one PDF; checked between drawing operators, so it stops a slow page part way. `0`: no limit. |
+| `LLM_EXTRA_BODY` | ai | unset | `{"chat_template_kwargs":{"enable_thinking":false}}` with Cloudflare | JSON object added to every `openai-compatible` request. |
 
 Files: `apps/api/vercel.json` (Express preset, `dist/` entry, Frankfurt, daily cron, PDF fonts),
 `services/ai/vercel.json` and `services/ai/index.py` (FastAPI entry, Frankfurt),
